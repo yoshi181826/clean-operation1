@@ -41,10 +41,10 @@
 
     <!-- Main Content -->
     <main id="app-content" class="max-w-3xl mx-auto p-4">
-        <!-- Views will be injected here -->
+        <!-- Views injected here -->
     </main>
 
-    <!-- Modal for adding rooms to daily schedule -->
+    <!-- Modal for adding rooms -->
     <div id="setup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col scale-95 transition-transform">
             <div class="flex justify-between items-center p-5 border-b">
@@ -52,7 +52,7 @@
                 <button onclick="closeModal()" class="text-gray-400 p-1"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-5 space-y-5 overflow-y-auto" id="modal-body">
-                <!-- Dynamic form -->
+                <!-- Form Content -->
             </div>
             <div class="p-5 border-t">
                 <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg">登録する</button>
@@ -63,11 +63,11 @@
     <script>
         // --- State ---
         let currentTab = 'tasks';
-        let activeSettingTab = 'rooms'; // rooms, staffs, checklist
+        let activeSettingTab = 'rooms';
         let currentDate = new Date().toISOString().split('T')[0];
         let selectedRoomId = null;
 
-        // Master Data (Real)
+        // Master Data
         let masterRooms = [
             { id: 'r1', number: '201', type: '和室' },
             { id: 'r2', number: '202', type: '洋室' },
@@ -76,7 +76,8 @@
 
         let masterStaffs = [
             { id: 's1', name: '田中', role: 'staff' },
-            { id: 's2', name: '佐藤', role: 'inspector' }
+            { id: 's2', name: '佐藤', role: 'inspector' },
+            { id: 's3', name: '鈴木', role: 'staff' }
         ];
 
         let masterChecklist = [
@@ -87,9 +88,7 @@
             { id: 'c5', category: '最終', text: '掃除機・施錠' }
         ];
 
-        // Temp data for editing in settings
         let editingMaster = [];
-
         let dailyData = {}; 
 
         // --- Navigation ---
@@ -100,12 +99,14 @@
         function switchTab(tab) {
             currentTab = tab;
             selectedRoomId = null;
-            if (tab === 'settings') {
-                prepareEditingData();
-            }
-            document.getElementById('tab-btn-tasks').className = tab === 'tasks' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
-            document.getElementById('tab-btn-settings').className = tab === 'settings' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+            if (tab === 'settings') prepareEditingData();
             render();
+            updateTabUI();
+        }
+
+        function updateTabUI() {
+            document.getElementById('tab-btn-tasks').className = currentTab === 'tasks' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+            document.getElementById('tab-btn-settings').className = currentTab === 'settings' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
         }
 
         function switchSettingTab(subTab) {
@@ -129,15 +130,12 @@
                 renderRoomDetail(content);
             } else {
                 header.classList.remove('hidden');
-                if (currentTab === 'tasks') {
-                    renderTasks(content);
-                } else {
-                    renderSettings(content);
-                }
+                if (currentTab === 'tasks') renderTasks(content);
+                else renderSettings(content);
             }
         }
 
-        // --- Task View ---
+        // --- Task List View ---
         function renderTasks(container) {
             const rooms = dailyData[currentDate] || [];
             
@@ -152,36 +150,29 @@
             `;
 
             if (rooms.length === 0) {
-                html += `
-                    <div class="col-span-full py-20 text-center opacity-40">
-                        <i class="fas fa-door-open text-5xl mb-4"></i>
-                        <p class="font-bold">稼働予定がありません</p>
-                    </div>
-                `;
+                html += `<div class="col-span-full py-20 text-center opacity-40"><p class="font-bold">稼働予定がありません</p></div>`;
             } else {
                 rooms.forEach(room => {
                     const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+                    const staff = masterStaffs.find(s => s.id === room.staffId);
                     const progress = calculateProgress(room.checks);
-                    const statusClass = getStatusColor(room.status);
                     
                     html += `
-                        <div class="bg-white rounded-2xl p-5 card-shadow relative group animate-in">
+                        <div class="bg-white rounded-2xl p-5 card-shadow animate-in">
                             <div class="flex justify-between items-start mb-2">
                                 <div class="flex items-end space-x-3 cursor-pointer" onclick="openDetail('${room.id}')">
                                     <span class="text-3xl font-black text-gray-800 leading-none">${mRoom.number}</span>
                                     <span class="text-xs font-bold text-gray-400 mb-1">${mRoom.type}</span>
                                 </div>
-                                <button onclick="deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt"></i></button>
+                                <button onclick="deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
                             </div>
-                            <div class="flex justify-between items-center mb-4">
-                                <span class="status-badge ${statusClass}">${room.status}</span>
-                                <span class="text-[10px] font-bold text-gray-400 uppercase">${room.guestType}</span>
+                            <div class="flex justify-between items-center mb-3">
+                                <span class="status-badge ${getStatusColor(room.status)}">${room.status}</span>
+                                <div class="text-[10px] font-bold text-gray-500">
+                                    <i class="fas fa-user-circle mr-1"></i>${staff ? staff.name : '未割当'}
+                                </div>
                             </div>
                             <div class="space-y-1.5 cursor-pointer" onclick="openDetail('${room.id}')">
-                                <div class="flex justify-between text-[10px] font-bold text-gray-400">
-                                    <span>進捗</span>
-                                    <span>${progress}%</span>
-                                </div>
                                 <div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
                                     <div class="h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${progress}%"></div>
                                 </div>
@@ -191,12 +182,10 @@
                 });
             }
 
-            html += `
-                </div>
-                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center hover:bg-blue-50 transition-colors">
+            html += `</div>
+                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center">
                     <i class="fas fa-plus mr-2"></i> 稼働部屋を追加
-                </button>
-            `;
+                </button>`;
             container.innerHTML = html;
         }
 
@@ -211,6 +200,8 @@
             if (!room) { selectedRoomId = null; render(); return; }
             
             const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+            const staff = masterStaffs.find(s => s.id === room.staffId);
+            const inspector = masterStaffs.find(s => s.id === room.inspectorId);
             const progress = calculateProgress(room.checks);
 
             container.innerHTML = `
@@ -224,26 +215,34 @@
                         <div class="status-badge ${getStatusColor(room.status)}">${room.status}</div>
                     </div>
                     
-                    <div class="p-4 max-w-2xl mx-auto space-y-6 mt-4">
-                        <div class="bg-white rounded-2xl shadow-sm border-2 border-gray-100 overflow-hidden">
-                            <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
-                                <span class="font-bold text-gray-600"><i class="fas fa-clipboard-check text-blue-500 mr-2"></i>清掃工程</span>
-                                <span class="text-sm font-black text-blue-600">${progress}%</span>
+                    <div class="p-4 max-w-2xl mx-auto space-y-4 mt-2">
+                        <!-- Staff Info -->
+                        <div class="grid grid-cols-2 gap-3">
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                <div class="text-[9px] font-black text-gray-400 uppercase">清掃担当</div>
+                                <div class="font-bold text-gray-700">${staff ? staff.name : '未指定'}</div>
                             </div>
-                            <div class="px-4 py-2 bg-gray-50/50 border-b">
-                                <div class="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
-                                    <div class="h-full bg-blue-500 transition-all" style="width:${progress}%"></div>
-                                </div>
+                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
+                                <div class="text-[9px] font-black text-gray-400 uppercase">点検責任者</div>
+                                <div class="font-bold text-gray-700">${inspector ? inspector.name : '未指定'}</div>
+                            </div>
+                        </div>
+
+                        <!-- Progress Section -->
+                        <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                            <div class="p-4 bg-gray-50/50 flex justify-between items-center border-b">
+                                <span class="font-bold text-sm text-gray-600">チェック項目</span>
+                                <span class="text-sm font-black text-blue-600">${progress}%</span>
                             </div>
                             <div class="divide-y divide-gray-50">
                                 ${masterChecklist.map(item => {
                                     const checked = room.checks[item.id];
                                     return `
-                                        <div onclick="toggleCheck('${item.id}')" class="flex items-center p-5 cursor-pointer active:bg-blue-50 transition-colors">
-                                            <i class="${checked ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-200'} text-3xl mr-4"></i>
+                                        <div onclick="toggleCheck('${item.id}')" class="flex items-center p-4 cursor-pointer active:bg-blue-50">
+                                            <i class="${checked ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
                                             <div class="flex-1">
-                                                <div class="text-[10px] font-bold text-gray-400 mb-0.5">${item.category}</div>
-                                                <div class="font-bold ${checked ? 'text-gray-300 line-through' : 'text-gray-700'}">${item.text}</div>
+                                                <div class="text-[9px] font-bold text-gray-400">${item.category}</div>
+                                                <div class="font-bold text-sm ${checked ? 'text-gray-300' : 'text-gray-700'}">${item.text}</div>
                                             </div>
                                         </div>
                                     `;
@@ -251,21 +250,17 @@
                             </div>
                         </div>
 
-                        <div class="bg-white rounded-2xl p-5 border-2 border-gray-100 space-y-3">
-                            <label class="font-bold text-gray-600 text-sm"><i class="fas fa-comment-alt mr-2 text-yellow-500"></i>メモ</label>
-                            <textarea onchange="updateNotes(this.value)" class="w-full border-2 border-gray-50 rounded-xl p-4 h-28 text-sm font-bold text-gray-700 bg-gray-50/30 outline-none" placeholder="特記事項があれば入力...">${room.notes}</textarea>
+                        <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
+                            <label class="font-bold text-gray-400 text-[10px] block mb-2 uppercase">特記事項</label>
+                            <textarea onchange="updateNotes(this.value)" class="w-full border-none rounded-lg p-2 h-20 text-sm font-bold text-gray-700 bg-gray-50 outline-none" placeholder="メモを入力...">${room.notes}</textarea>
                         </div>
 
-                        <div class="pt-4 space-y-3">
+                        <div class="pt-2 space-y-3">
                             ${room.status !== '清掃完了' && room.status !== '点検済' ? `
-                                <button onclick="setStatus('清掃完了')" ${progress < 100 ? 'disabled' : ''} class="w-full py-5 rounded-2xl font-black text-xl shadow-xl transition-all ${progress === 100 ? 'bg-blue-600 text-white active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">
-                                    清掃完了を報告
-                                </button>
+                                <button onclick="setStatus('清掃完了')" ${progress < 100 ? 'disabled' : ''} class="w-full py-4 rounded-xl font-black shadow-lg transition-all ${progress === 100 ? 'bg-blue-600 text-white active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">清掃完了を報告</button>
                             ` : ''}
                             ${room.status === '清掃完了' ? `
-                                <button onclick="setStatus('点検済')" class="w-full py-5 rounded-2xl font-black text-xl bg-green-600 text-white shadow-xl active:scale-95">
-                                    点検完了（販売OK）
-                                </button>
+                                <button onclick="setStatus('点検済')" class="w-full py-4 rounded-xl font-black bg-green-600 text-white shadow-lg active:scale-95">インスペクション完了</button>
                             ` : ''}
                         </div>
                     </div>
@@ -273,126 +268,141 @@
             `;
         }
 
-        // --- Settings View ---
+        // --- Master Data Settings ---
         function renderSettings(container) {
             let subContent = '';
-            
+            const saveBtn = `<button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg"><i class="fas fa-save mr-2"></i> 設定を保存</button>`;
+
             if (activeSettingTab === 'rooms') {
-                subContent = `
-                    <div class="space-y-3">
-                        ${editingMaster.map((r, i) => `
-                            <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
-                                <input type="text" value="${r.number}" oninput="updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
-                                <input type="text" value="${r.type}" oninput="updateEditingItem(${i}, 'type', this.value)" class="w-1/3 p-2 text-sm bg-gray-50 rounded-lg outline-none" placeholder="タイプ">
-                                <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
-                            </div>
-                        `).join('')}
-                        <button onclick="addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
-                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
-                            <i class="fas fa-save mr-2"></i> 設定を保存
-                        </button>
-                    </div>
-                `;
+                subContent = `<div class="space-y-3">
+                    ${editingMaster.map((r, i) => `
+                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
+                            <input type="text" value="${r.number}" oninput="updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
+                            <input type="text" value="${r.type}" oninput="updateEditingItem(${i}, 'type', this.value)" class="w-1/3 p-2 text-sm bg-gray-50 rounded-lg outline-none" placeholder="タイプ">
+                            <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                        </div>`).join('')}
+                    <button onclick="addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
+                    ${saveBtn}</div>`;
             } else if (activeSettingTab === 'staffs') {
-                subContent = `
-                    <div class="space-y-3">
-                        ${editingMaster.map((s, i) => `
-                            <div class="flex flex-col md:flex-row gap-2 bg-white p-3 rounded-xl border">
-                                <input type="text" value="${s.name}" oninput="updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
-                                <select onchange="updateEditingItem(${i}, 'role', this.value)" class="p-2 text-sm bg-gray-50 rounded-lg outline-none bg-white border">
-                                    <option value="staff" ${s.role === 'staff' ? 'selected' : ''}>清掃員</option>
-                                    <option value="inspector" ${s.role === 'inspector' ? 'selected' : ''}>インスペクター</option>
-                                </select>
-                                <button onclick="removeFromEditing(${i})" class="text-red-300 p-2 text-right"><i class="fas fa-trash"></i></button>
-                            </div>
-                        `).join('')}
-                        <button onclick="addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
-                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
-                            <i class="fas fa-save mr-2"></i> 設定を保存
-                        </button>
-                    </div>
-                `;
+                subContent = `<div class="space-y-3">
+                    ${editingMaster.map((s, i) => `
+                        <div class="flex flex-col md:flex-row gap-2 bg-white p-3 rounded-xl border">
+                            <input type="text" value="${s.name}" oninput="updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
+                            <select onchange="updateEditingItem(${i}, 'role', this.value)" class="p-2 text-sm bg-gray-50 rounded-lg outline-none border">
+                                <option value="staff" ${s.role === 'staff' ? 'selected' : ''}>清掃スタッフ</option>
+                                <option value="inspector" ${s.role === 'inspector' ? 'selected' : ''}>インスペクター</option>
+                            </select>
+                            <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                        </div>`).join('')}
+                    <button onclick="addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
+                    ${saveBtn}</div>`;
             } else if (activeSettingTab === 'checklist') {
-                subContent = `
-                    <div class="space-y-4">
-                        ${editingMaster.map((c, i) => `
-                            <div class="bg-white p-4 rounded-xl border space-y-2">
-                                <div class="flex justify-between">
-                                    <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ">
-                                    <button onclick="removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
-                                </div>
-                                <input type="text" value="${c.text}" oninput="updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="清掃内容">
+                subContent = `<div class="space-y-4">
+                    ${editingMaster.map((c, i) => `
+                        <div class="bg-white p-4 rounded-xl border space-y-2">
+                            <div class="flex justify-between items-center">
+                                <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ">
+                                <button onclick="removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
                             </div>
-                        `).join('')}
-                        <button onclick="addToEditing('checklist')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 項目を追加</button>
-                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
-                            <i class="fas fa-save mr-2"></i> 設定を保存
-                        </button>
-                    </div>
-                `;
+                            <input type="text" value="${c.text}" oninput="updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="項目内容">
+                        </div>`).join('')}
+                    <button onclick="addToEditing('checklist')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 項目を追加</button>
+                    ${saveBtn}</div>`;
             }
 
             container.innerHTML = `
                 <div class="animate-in">
                     <div class="flex items-center justify-between mb-8 overflow-x-auto pb-2 scrollbar-hide">
-                        <h2 class="text-2xl font-black text-gray-800 shrink-0">システム設定</h2>
+                        <h2 class="text-2xl font-black text-gray-800 shrink-0">設定管理</h2>
                         <div class="flex bg-gray-200 p-1 rounded-xl ml-4">
                             <button onclick="switchSettingTab('rooms')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
                             <button onclick="switchSettingTab('staffs')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
                             <button onclick="switchSettingTab('checklist')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
                         </div>
                     </div>
-
                     ${subContent}
+                </div>`;
+        }
 
-                    <div class="mt-10 p-5 bg-blue-50 rounded-2xl border border-blue-100">
-                        <p class="text-blue-600 text-[10px] font-black uppercase mb-1">Information</p>
-                        <p class="text-blue-800 text-xs font-bold leading-relaxed">
-                            上の「設定を保存」ボタンを押すと、メイン画面のリストに反映されます。<br>
-                            ※現在はブラウザのメモリ内のみの保存です。
-                        </p>
+        // --- Modal Logic ---
+        function openAddModal() {
+            const modal = document.getElementById('setup-modal');
+            const body = document.getElementById('modal-body');
+            modal.classList.remove('hidden');
+            
+            const staffs = masterStaffs.filter(s => s.role === 'staff');
+            const inspectors = masterStaffs.filter(s => s.role === 'inspector');
+
+            body.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">客室番号</label>
+                        <select id="form-room" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
+                            ${masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
+                        </select>
                     </div>
-                </div>
-            `;
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">清掃種別</label>
+                        <select id="form-type" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
+                            <option>通常清掃</option>
+                            <option>連泊清掃</option>
+                            <option>VIP対応</option>
+                        </select>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3">
+                        <div>
+                            <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">清掃担当</label>
+                            <select id="form-staff" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
+                                <option value="">未指定</option>
+                                ${staffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                            </select>
+                        </div>
+                        <div>
+                            <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">点検者</label>
+                            <select id="form-inspector" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
+                                <option value="">未指定</option>
+                                ${inspectors.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                            </select>
+                        </div>
+                    </div>
+                </div>`;
+            
+            document.getElementById('modal-save-btn').onclick = () => {
+                if (!dailyData[currentDate]) dailyData[currentDate] = [];
+                dailyData[currentDate].push({
+                    id: 'd' + Date.now(),
+                    roomId: document.getElementById('form-room').value,
+                    guestType: document.getElementById('form-type').value,
+                    staffId: document.getElementById('form-staff').value,
+                    inspectorId: document.getElementById('form-inspector').value,
+                    status: '未清掃',
+                    checks: {},
+                    notes: ''
+                });
+                closeModal();
+                render();
+            };
         }
 
-        // --- Master Data Actions (Internal Editing) ---
-        function updateEditingItem(index, field, value) {
-            editingMaster[index][field] = value;
-        }
+        function closeModal() { document.getElementById('setup-modal').classList.add('hidden'); }
 
+        // --- Logic Helpers ---
+        function updateEditingItem(i, f, v) { editingMaster[i][f] = v; }
         function addToEditing(type) {
             if (type === 'rooms') editingMaster.push({ id: 'r' + Date.now(), number: '', type: '' });
             if (type === 'staffs') editingMaster.push({ id: 's' + Date.now(), name: '', role: 'staff' });
             if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '新規', text: '' });
             render();
         }
-
-        function removeFromEditing(index) {
-            editingMaster.splice(index, 1);
-            render();
-        }
+        function removeFromEditing(i) { editingMaster.splice(i, 1); render(); }
 
         function saveSettings() {
             if (activeSettingTab === 'rooms') masterRooms = JSON.parse(JSON.stringify(editingMaster));
             if (activeSettingTab === 'staffs') masterStaffs = JSON.parse(JSON.stringify(editingMaster));
             if (activeSettingTab === 'checklist') masterChecklist = JSON.parse(JSON.stringify(editingMaster));
-            
-            // UI Feedback
-            const btn = event.currentTarget;
-            const originalContent = btn.innerHTML;
-            btn.innerHTML = '<i class="fas fa-check mr-2"></i> 保存完了';
-            btn.classList.remove('bg-blue-600');
-            btn.classList.add('bg-green-600');
-            
-            setTimeout(() => {
-                btn.innerHTML = originalContent;
-                btn.classList.remove('bg-green-600');
-                btn.classList.add('bg-blue-600');
-            }, 2000);
+            render();
         }
 
-        // --- Helpers ---
         function calculateProgress(checks) {
             if (!checks || masterChecklist.length === 0) return 0;
             const completed = Object.values(checks).filter(v => v).length;
@@ -409,86 +419,35 @@
             }
         }
 
-        // --- Daily Schedule Actions ---
-        function openAddModal() {
-            const modal = document.getElementById('setup-modal');
-            const body = document.getElementById('modal-body');
-            modal.classList.remove('hidden');
-            
-            body.innerHTML = `
-                <div class="space-y-4">
-                    <div>
-                        <label class="text-[10px] font-bold text-gray-400 ml-1">客室番号</label>
-                        <select id="form-room" class="w-full border-2 rounded-xl p-4 bg-white font-bold appearance-none outline-none">
-                            ${masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
-                        </select>
-                    </div>
-                    <div>
-                        <label class="text-[10px] font-bold text-gray-400 ml-1">清掃種別</label>
-                        <select id="form-type" class="w-full border-2 rounded-xl p-4 bg-white font-bold appearance-none outline-none">
-                            <option>チェックアウト</option>
-                            <option>連泊清掃</option>
-                            <option>VIP対応</option>
-                        </select>
-                    </div>
-                </div>
-            `;
-            
-            document.getElementById('modal-save-btn').onclick = () => {
-                const roomId = document.getElementById('form-room').value;
-                const guestType = document.getElementById('form-type').value;
-                
-                if (!dailyData[currentDate]) dailyData[currentDate] = [];
-                dailyData[currentDate].push({
-                    id: 'd' + Date.now(),
-                    roomId: roomId,
-                    guestType: guestType,
-                    status: '未清掃',
-                    checks: {},
-                    notes: ''
-                });
-                
-                closeModal();
-                render();
-            };
-        }
-
-        function closeModal() {
-            document.getElementById('setup-modal').classList.add('hidden');
-        }
-
         function deleteDailyRoom(id) {
-            if (!confirm('この予定を削除しますか？')) return;
-            dailyData[currentDate] = dailyData[currentDate].filter(r => r.id !== id);
-            render();
+            if (confirm('予定を削除しますか？')) {
+                dailyData[currentDate] = dailyData[currentDate].filter(r => r.id !== id);
+                render();
+            }
         }
 
-        function toggleCheck(checkId) {
+        function toggleCheck(cid) {
             const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
             if (room.status === '点検済') return;
-            
-            room.checks[checkId] = !room.checks[checkId];
-            const prog = calculateProgress(room.checks);
-            
-            if (room.status === '未清掃' && prog > 0) room.status = '清掃中';
-            if (room.status === '清掃完了' && prog < 100) room.status = '清掃中';
-            
+            room.checks[cid] = !room.checks[cid];
+            const p = calculateProgress(room.checks);
+            if (p > 0 && room.status === '未清掃') room.status = '清掃中';
+            if (p < 100 && room.status === '清掃完了') room.status = '清掃中';
             render();
         }
 
-        function updateNotes(val) {
+        function updateNotes(v) {
             const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
-            if (room) room.notes = val;
+            if (room) room.notes = v;
         }
 
-        function setStatus(status) {
+        function setStatus(s) {
             const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
-            room.status = status;
+            room.status = s;
             selectedRoomId = null;
             render();
         }
 
-        // Start
         window.onload = init;
     </script>
 </body>
