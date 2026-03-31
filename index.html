@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TAIANKAKU Management System</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
+        body { font-family: 'Noto Sans JP', sans-serif; }
+        .scrollbar-hide::-webkit-scrollbar { display: none; }
+        .status-badge { @apply text-[10px] px-2 py-1 rounded-md font-black border; }
+        .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
+        .animate-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body class="bg-gray-50 text-gray-900 pb-20">
+
+    <!-- Header -->
+    <header id="main-header" class="bg-white border-b sticky top-0 z-40 shadow-sm px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center space-x-3">
+            <div class="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-100">
+                <i class="fas fa-home text-white"></i>
+            </div>
+            <div>
+                <h1 class="text-sm font-black leading-none uppercase">TAIANKAKU</h1>
+                <p class="text-[9px] font-bold text-gray-400 tracking-tighter uppercase mt-0.5">Hotel Operations</p>
+            </div>
+        </div>
+        <div class="flex bg-gray-100 p-1 rounded-2xl">
+            <button onclick="switchTab('tasks')" id="tab-btn-tasks" class="p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600">
+                <i class="fas fa-list-ul text-lg"></i>
+            </button>
+            <button onclick="switchTab('settings')" id="tab-btn-settings" class="p-3 rounded-xl transition-all text-gray-400">
+                <i class="fas fa-cog text-lg"></i>
+            </button>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main id="app-content" class="max-w-3xl mx-auto p-4">
+        <!-- Views will be injected here -->
+    </main>
+
+    <!-- Modal for adding rooms to daily schedule -->
+    <div id="setup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col scale-95 transition-transform">
+            <div class="flex justify-between items-center p-5 border-b">
+                <h3 id="modal-title" class="font-bold text-lg">稼働部屋の追加</h3>
+                <button onclick="closeModal()" class="text-gray-400 p-1"><i class="fas fa-times text-xl"></i></button>
+            </div>
+            <div class="p-5 space-y-5 overflow-y-auto" id="modal-body">
+                <!-- Dynamic form -->
+            </div>
+            <div class="p-5 border-t">
+                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg">登録する</button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- State ---
+        let currentTab = 'tasks';
+        let activeSettingTab = 'rooms'; // rooms, staffs, checklist
+        let currentDate = new Date().toISOString().split('T')[0];
+        let selectedRoomId = null;
+
+        // Master Data (Real)
+        let masterRooms = [
+            { id: 'r1', number: '201', type: '和室' },
+            { id: 'r2', number: '202', type: '洋室' },
+            { id: 'r3', number: '203', type: '和洋室' }
+        ];
+
+        let masterStaffs = [
+            { id: 's1', name: '田中', role: 'staff' },
+            { id: 's2', name: '佐藤', role: 'inspector' }
+        ];
+
+        let masterChecklist = [
+            { id: 'c1', category: '準備', text: '換気・照明確認' },
+            { id: 'c2', category: '回収', text: 'ゴミ・リネン回収' },
+            { id: 'c3', category: '水回り', text: 'バス・トイレ清掃' },
+            { id: 'c4', category: 'ベッド', text: 'ベッドメイク' },
+            { id: 'c5', category: '最終', text: '掃除機・施錠' }
+        ];
+
+        // Temp data for editing in settings
+        let editingMaster = [];
+
+        let dailyData = {}; 
+
+        // --- Navigation ---
+        function init() {
+            render();
+        }
+
+        function switchTab(tab) {
+            currentTab = tab;
+            selectedRoomId = null;
+            if (tab === 'settings') {
+                prepareEditingData();
+            }
+            document.getElementById('tab-btn-tasks').className = tab === 'tasks' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+            document.getElementById('tab-btn-settings').className = tab === 'settings' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+            render();
+        }
+
+        function switchSettingTab(subTab) {
+            activeSettingTab = subTab;
+            prepareEditingData();
+            render();
+        }
+
+        function prepareEditingData() {
+            if (activeSettingTab === 'rooms') editingMaster = JSON.parse(JSON.stringify(masterRooms));
+            if (activeSettingTab === 'staffs') editingMaster = JSON.parse(JSON.stringify(masterStaffs));
+            if (activeSettingTab === 'checklist') editingMaster = JSON.parse(JSON.stringify(masterChecklist));
+        }
+
+        function render() {
+            const content = document.getElementById('app-content');
+            const header = document.getElementById('main-header');
+            
+            if (selectedRoomId) {
+                header.classList.add('hidden');
+                renderRoomDetail(content);
+            } else {
+                header.classList.remove('hidden');
+                if (currentTab === 'tasks') {
+                    renderTasks(content);
+                } else {
+                    renderSettings(content);
+                }
+            }
+        }
+
+        // --- Task View ---
+        function renderTasks(container) {
+            const rooms = dailyData[currentDate] || [];
+            
+            let html = `
+                <div class="flex items-center justify-between mb-6">
+                    <div class="flex items-center bg-white border-2 rounded-xl p-2 shadow-sm">
+                        <i class="fas fa-calendar-alt text-blue-500 ml-2"></i>
+                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; render();" class="ml-2 font-black text-gray-700 outline-none">
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            `;
+
+            if (rooms.length === 0) {
+                html += `
+                    <div class="col-span-full py-20 text-center opacity-40">
+                        <i class="fas fa-door-open text-5xl mb-4"></i>
+                        <p class="font-bold">稼働予定がありません</p>
+                    </div>
+                `;
+            } else {
+                rooms.forEach(room => {
+                    const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+                    const progress = calculateProgress(room.checks);
+                    const statusClass = getStatusColor(room.status);
+                    
+                    html += `
+                        <div class="bg-white rounded-2xl p-5 card-shadow relative group animate-in">
+                            <div class="flex justify-between items-start mb-2">
+                                <div class="flex items-end space-x-3 cursor-pointer" onclick="openDetail('${room.id}')">
+                                    <span class="text-3xl font-black text-gray-800 leading-none">${mRoom.number}</span>
+                                    <span class="text-xs font-bold text-gray-400 mb-1">${mRoom.type}</span>
+                                </div>
+                                <button onclick="deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500 transition-colors"><i class="fas fa-trash-alt"></i></button>
+                            </div>
+                            <div class="flex justify-between items-center mb-4">
+                                <span class="status-badge ${statusClass}">${room.status}</span>
+                                <span class="text-[10px] font-bold text-gray-400 uppercase">${room.guestType}</span>
+                            </div>
+                            <div class="space-y-1.5 cursor-pointer" onclick="openDetail('${room.id}')">
+                                <div class="flex justify-between text-[10px] font-bold text-gray-400">
+                                    <span>進捗</span>
+                                    <span>${progress}%</span>
+                                </div>
+                                <div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
+                                    <div class="h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${progress}%"></div>
+                                </div>
+                            </div>
+                        </div>
+                    `;
+                });
+            }
+
+            html += `
+                </div>
+                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center hover:bg-blue-50 transition-colors">
+                    <i class="fas fa-plus mr-2"></i> 稼働部屋を追加
+                </button>
+            `;
+            container.innerHTML = html;
+        }
+
+        // --- Detail View ---
+        function openDetail(id) {
+            selectedRoomId = id;
+            render();
+        }
+
+        function renderRoomDetail(container) {
+            const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
+            if (!room) { selectedRoomId = null; render(); return; }
+            
+            const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+            const progress = calculateProgress(room.checks);
+
+            container.innerHTML = `
+                <div class="bg-gray-50 min-h-screen pb-24 -mt-4 -mx-4 animate-in">
+                    <div class="sticky top-0 bg-white/80 backdrop-blur-md shadow-sm z-30 px-4 py-4 flex items-center justify-between border-b">
+                        <button onclick="selectedRoomId=null; render();" class="p-2 bg-gray-100 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="fas fa-arrow-left"></i></button>
+                        <div class="text-center">
+                            <div class="font-black text-2xl text-gray-800">${mRoom.number}号室</div>
+                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">${room.guestType}</div>
+                        </div>
+                        <div class="status-badge ${getStatusColor(room.status)}">${room.status}</div>
+                    </div>
+                    
+                    <div class="p-4 max-w-2xl mx-auto space-y-6 mt-4">
+                        <div class="bg-white rounded-2xl shadow-sm border-2 border-gray-100 overflow-hidden">
+                            <div class="p-4 bg-gray-50 border-b flex justify-between items-center">
+                                <span class="font-bold text-gray-600"><i class="fas fa-clipboard-check text-blue-500 mr-2"></i>清掃工程</span>
+                                <span class="text-sm font-black text-blue-600">${progress}%</span>
+                            </div>
+                            <div class="px-4 py-2 bg-gray-50/50 border-b">
+                                <div class="w-full bg-gray-200 h-2 rounded-full overflow-hidden">
+                                    <div class="h-full bg-blue-500 transition-all" style="width:${progress}%"></div>
+                                </div>
+                            </div>
+                            <div class="divide-y divide-gray-50">
+                                ${masterChecklist.map(item => {
+                                    const checked = room.checks[item.id];
+                                    return `
+                                        <div onclick="toggleCheck('${item.id}')" class="flex items-center p-5 cursor-pointer active:bg-blue-50 transition-colors">
+                                            <i class="${checked ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-200'} text-3xl mr-4"></i>
+                                            <div class="flex-1">
+                                                <div class="text-[10px] font-bold text-gray-400 mb-0.5">${item.category}</div>
+                                                <div class="font-bold ${checked ? 'text-gray-300 line-through' : 'text-gray-700'}">${item.text}</div>
+                                            </div>
+                                        </div>
+                                    `;
+                                }).join('')}
+                            </div>
+                        </div>
+
+                        <div class="bg-white rounded-2xl p-5 border-2 border-gray-100 space-y-3">
+                            <label class="font-bold text-gray-600 text-sm"><i class="fas fa-comment-alt mr-2 text-yellow-500"></i>メモ</label>
+                            <textarea onchange="updateNotes(this.value)" class="w-full border-2 border-gray-50 rounded-xl p-4 h-28 text-sm font-bold text-gray-700 bg-gray-50/30 outline-none" placeholder="特記事項があれば入力...">${room.notes}</textarea>
+                        </div>
+
+                        <div class="pt-4 space-y-3">
+                            ${room.status !== '清掃完了' && room.status !== '点検済' ? `
+                                <button onclick="setStatus('清掃完了')" ${progress < 100 ? 'disabled' : ''} class="w-full py-5 rounded-2xl font-black text-xl shadow-xl transition-all ${progress === 100 ? 'bg-blue-600 text-white active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">
+                                    清掃完了を報告
+                                </button>
+                            ` : ''}
+                            ${room.status === '清掃完了' ? `
+                                <button onclick="setStatus('点検済')" class="w-full py-5 rounded-2xl font-black text-xl bg-green-600 text-white shadow-xl active:scale-95">
+                                    点検完了（販売OK）
+                                </button>
+                            ` : ''}
+                        </div>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Settings View ---
+        function renderSettings(container) {
+            let subContent = '';
+            
+            if (activeSettingTab === 'rooms') {
+                subContent = `
+                    <div class="space-y-3">
+                        ${editingMaster.map((r, i) => `
+                            <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
+                                <input type="text" value="${r.number}" oninput="updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
+                                <input type="text" value="${r.type}" oninput="updateEditingItem(${i}, 'type', this.value)" class="w-1/3 p-2 text-sm bg-gray-50 rounded-lg outline-none" placeholder="タイプ">
+                                <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                            </div>
+                        `).join('')}
+                        <button onclick="addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
+                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
+                            <i class="fas fa-save mr-2"></i> 設定を保存
+                        </button>
+                    </div>
+                `;
+            } else if (activeSettingTab === 'staffs') {
+                subContent = `
+                    <div class="space-y-3">
+                        ${editingMaster.map((s, i) => `
+                            <div class="flex flex-col md:flex-row gap-2 bg-white p-3 rounded-xl border">
+                                <input type="text" value="${s.name}" oninput="updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
+                                <select onchange="updateEditingItem(${i}, 'role', this.value)" class="p-2 text-sm bg-gray-50 rounded-lg outline-none bg-white border">
+                                    <option value="staff" ${s.role === 'staff' ? 'selected' : ''}>清掃員</option>
+                                    <option value="inspector" ${s.role === 'inspector' ? 'selected' : ''}>インスペクター</option>
+                                </select>
+                                <button onclick="removeFromEditing(${i})" class="text-red-300 p-2 text-right"><i class="fas fa-trash"></i></button>
+                            </div>
+                        `).join('')}
+                        <button onclick="addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
+                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
+                            <i class="fas fa-save mr-2"></i> 設定を保存
+                        </button>
+                    </div>
+                `;
+            } else if (activeSettingTab === 'checklist') {
+                subContent = `
+                    <div class="space-y-4">
+                        ${editingMaster.map((c, i) => `
+                            <div class="bg-white p-4 rounded-xl border space-y-2">
+                                <div class="flex justify-between">
+                                    <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ">
+                                    <button onclick="removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
+                                </div>
+                                <input type="text" value="${c.text}" oninput="updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="清掃内容">
+                            </div>
+                        `).join('')}
+                        <button onclick="addToEditing('checklist')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 項目を追加</button>
+                        <button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg shadow-blue-100">
+                            <i class="fas fa-save mr-2"></i> 設定を保存
+                        </button>
+                    </div>
+                `;
+            }
+
+            container.innerHTML = `
+                <div class="animate-in">
+                    <div class="flex items-center justify-between mb-8 overflow-x-auto pb-2 scrollbar-hide">
+                        <h2 class="text-2xl font-black text-gray-800 shrink-0">システム設定</h2>
+                        <div class="flex bg-gray-200 p-1 rounded-xl ml-4">
+                            <button onclick="switchSettingTab('rooms')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
+                            <button onclick="switchSettingTab('staffs')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
+                            <button onclick="switchSettingTab('checklist')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
+                        </div>
+                    </div>
+
+                    ${subContent}
+
+                    <div class="mt-10 p-5 bg-blue-50 rounded-2xl border border-blue-100">
+                        <p class="text-blue-600 text-[10px] font-black uppercase mb-1">Information</p>
+                        <p class="text-blue-800 text-xs font-bold leading-relaxed">
+                            上の「設定を保存」ボタンを押すと、メイン画面のリストに反映されます。<br>
+                            ※現在はブラウザのメモリ内のみの保存です。
+                        </p>
+                    </div>
+                </div>
+            `;
+        }
+
+        // --- Master Data Actions (Internal Editing) ---
+        function updateEditingItem(index, field, value) {
+            editingMaster[index][field] = value;
+        }
+
+        function addToEditing(type) {
+            if (type === 'rooms') editingMaster.push({ id: 'r' + Date.now(), number: '', type: '' });
+            if (type === 'staffs') editingMaster.push({ id: 's' + Date.now(), name: '', role: 'staff' });
+            if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '新規', text: '' });
+            render();
+        }
+
+        function removeFromEditing(index) {
+            editingMaster.splice(index, 1);
+            render();
+        }
+
+        function saveSettings() {
+            if (activeSettingTab === 'rooms') masterRooms = JSON.parse(JSON.stringify(editingMaster));
+            if (activeSettingTab === 'staffs') masterStaffs = JSON.parse(JSON.stringify(editingMaster));
+            if (activeSettingTab === 'checklist') masterChecklist = JSON.parse(JSON.stringify(editingMaster));
+            
+            // UI Feedback
+            const btn = event.currentTarget;
+            const originalContent = btn.innerHTML;
+            btn.innerHTML = '<i class="fas fa-check mr-2"></i> 保存完了';
+            btn.classList.remove('bg-blue-600');
+            btn.classList.add('bg-green-600');
+            
+            setTimeout(() => {
+                btn.innerHTML = originalContent;
+                btn.classList.remove('bg-green-600');
+                btn.classList.add('bg-blue-600');
+            }, 2000);
+        }
+
+        // --- Helpers ---
+        function calculateProgress(checks) {
+            if (!checks || masterChecklist.length === 0) return 0;
+            const completed = Object.values(checks).filter(v => v).length;
+            return Math.round((completed / masterChecklist.length) * 100);
+        }
+
+        function getStatusColor(status) {
+            switch (status) {
+                case '未清掃': return 'bg-gray-100 text-gray-700 border-gray-300';
+                case '清掃中': return 'bg-blue-100 text-blue-700 border-blue-300';
+                case '清掃完了': return 'bg-yellow-100 text-yellow-700 border-yellow-300';
+                case '点検済': return 'bg-green-100 text-green-700 border-green-300';
+                default: return 'bg-gray-100';
+            }
+        }
+
+        // --- Daily Schedule Actions ---
+        function openAddModal() {
+            const modal = document.getElementById('setup-modal');
+            const body = document.getElementById('modal-body');
+            modal.classList.remove('hidden');
+            
+            body.innerHTML = `
+                <div class="space-y-4">
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 ml-1">客室番号</label>
+                        <select id="form-room" class="w-full border-2 rounded-xl p-4 bg-white font-bold appearance-none outline-none">
+                            ${masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-bold text-gray-400 ml-1">清掃種別</label>
+                        <select id="form-type" class="w-full border-2 rounded-xl p-4 bg-white font-bold appearance-none outline-none">
+                            <option>チェックアウト</option>
+                            <option>連泊清掃</option>
+                            <option>VIP対応</option>
+                        </select>
+                    </div>
+                </div>
+            `;
+            
+            document.getElementById('modal-save-btn').onclick = () => {
+                const roomId = document.getElementById('form-room').value;
+                const guestType = document.getElementById('form-type').value;
+                
+                if (!dailyData[currentDate]) dailyData[currentDate] = [];
+                dailyData[currentDate].push({
+                    id: 'd' + Date.now(),
+                    roomId: roomId,
+                    guestType: guestType,
+                    status: '未清掃',
+                    checks: {},
+                    notes: ''
+                });
+                
+                closeModal();
+                render();
+            };
+        }
+
+        function closeModal() {
+            document.getElementById('setup-modal').classList.add('hidden');
+        }
+
+        function deleteDailyRoom(id) {
+            if (!confirm('この予定を削除しますか？')) return;
+            dailyData[currentDate] = dailyData[currentDate].filter(r => r.id !== id);
+            render();
+        }
+
+        function toggleCheck(checkId) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            if (room.status === '点検済') return;
+            
+            room.checks[checkId] = !room.checks[checkId];
+            const prog = calculateProgress(room.checks);
+            
+            if (room.status === '未清掃' && prog > 0) room.status = '清掃中';
+            if (room.status === '清掃完了' && prog < 100) room.status = '清掃中';
+            
+            render();
+        }
+
+        function updateNotes(val) {
+            const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
+            if (room) room.notes = val;
+        }
+
+        function setStatus(status) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            room.status = status;
+            selectedRoomId = null;
+            render();
+        }
+
+        // Start
+        window.onload = init;
+    </script>
+</body>
+</html>
