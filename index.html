@@ -8,7 +8,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
-        body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Noto Sans JP', sans-serif; }
         .scrollbar-hide::-webkit-scrollbar { display: none; }
         .status-badge { @apply text-[10px] px-2 py-1 rounded-md font-black border; }
         .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
@@ -23,26 +23,9 @@
             background-position: right 0.5rem center;
             background-size: 0.75rem;
         }
-
-        /* Loading Spinner */
-        .loader {
-            border: 3px solid #f3f3f3;
-            border-top: 3px solid #3498db;
-            border-radius: 50%;
-            width: 24px;
-            height: 24px;
-            animation: spin 1s linear infinite;
-        }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 pb-20">
-
-    <!-- Loading Overlay -->
-    <div id="global-loader" class="fixed inset-0 bg-white z-[100] flex flex-col items-center justify-center transition-opacity duration-500">
-        <div class="loader mb-4"></div>
-        <p class="text-xs font-bold text-gray-400 uppercase tracking-widest">Loading TAIANKAKU...</p>
-    </div>
 
     <!-- Header -->
     <header id="main-header" class="bg-white border-b sticky top-0 z-40 shadow-sm px-6 py-4 flex justify-between items-center">
@@ -81,26 +64,13 @@
                 <!-- Form Content -->
             </div>
             <div class="p-5 border-t">
-                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform">登録する</button>
+                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg">登録する</button>
             </div>
         </div>
     </div>
 
-    <!-- Firebase SDKs -->
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-app.js";
-        import { getAuth, signInAnonymously, signInWithCustomToken, onAuthStateChanged } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-auth.js";
-        import { getFirestore, doc, setDoc, getDoc, collection, onSnapshot, query, updateDoc, deleteDoc, addDoc } from "https://www.gstatic.com/firebasejs/11.6.1/firebase-firestore.js";
-
-        // --- Firebase Configuration ---
-        const firebaseConfig = JSON.parse(__firebase_config);
-        const app = initializeApp(firebaseConfig);
-        const auth = getAuth(app);
-        const db = getFirestore(app);
-        const appId = typeof __app_id !== 'undefined' ? __app_id : 'taiankaku-ops';
-
+    <script>
         // --- State ---
-        let user = null;
         let currentTab = 'tasks';
         let activeSettingTab = 'rooms';
         let activeChecklistCategory = '和室'; 
@@ -109,95 +79,76 @@
 
         const roomCategories = ['和室', '洋室', 'プレミアムスイート', '貴賓室', 'モダンスイート'];
 
-        // Data from Firestore
-        let masterRooms = [];
-        let masterStaffs = [];
-        let masterChecklist = {};
-        let dailyRooms = [];
+        // Master Data
+        let masterRooms = [
+            { id: 'r1', number: '201', type: '和室' },
+            { id: 'r2', number: '202', type: '洋室' },
+            { id: 'r3', number: '203', type: 'プレミアムスイート' },
+            { id: 'r4', number: '205', type: 'モダンスイート' }
+        ];
+
+        let masterStaffs = [
+            { id: 's1', name: '田中' },
+            { id: 's2', name: '佐藤' },
+            { id: 's3', name: '鈴木' },
+            { id: 's4', name: '高橋' }
+        ];
+
+        let masterChecklist = {
+            '和室': [
+                { id: 'c1', category: '清掃', text: '畳の拭き掃除' },
+                { id: 'c2', category: '清掃', text: '障子の確認' }
+            ],
+            '洋室': [
+                { id: 'c3', category: '清掃', text: 'カーペット掃除機' },
+                { id: 'c4', category: '清掃', text: 'デスク周り除菌' }
+            ],
+            'プレミアムスイート': [
+                { id: 'c5', category: '清掃', text: 'ウェルカムフルーツ準備' },
+                { id: 'c6', category: '清掃', text: '高級アメニティ補充' }
+            ],
+            '貴賓室': [
+                { id: 'c7', category: '清掃', text: '全調度品の乾拭き' },
+                { id: 'c8', category: '清掃', text: '生花の鮮度確認' }
+            ],
+            'モダンスイート': [
+                { id: 'c9', category: '清掃', text: 'スマート家電動作確認' },
+                { id: 'c10', category: '清掃', text: '間接照明ホコリ除去' }
+            ]
+        };
+
         let editingMaster = [];
+        let dailyData = {}; 
 
-        // --- Initialization ---
-        async function init() {
-            try {
-                if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) {
-                    await signInWithCustomToken(auth, __initial_auth_token);
-                } else {
-                    await signInAnonymously(auth);
-                }
-            } catch (error) {
-                console.error("Auth error:", error);
-            }
-
-            onAuthStateChanged(auth, (u) => {
-                user = u;
-                if (user) {
-                    setupRealtimeListeners();
-                    hideLoader();
-                }
-            });
+        // --- Navigation ---
+        function init() {
+            render();
         }
 
-        function hideLoader() {
-            const loader = document.getElementById('global-loader');
-            loader.style.opacity = '0';
-            setTimeout(() => loader.classList.add('hidden'), 500);
-        }
-
-        function setupRealtimeListeners() {
-            if (!user) return;
-
-            // Master Rooms
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'masterRooms'), (snapshot) => {
-                masterRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (currentTab === 'settings' && activeSettingTab === 'rooms') prepareEditingData();
-                render();
-            }, (err) => console.error(err));
-
-            // Master Staffs
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'masterStaffs'), (snapshot) => {
-                masterStaffs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                if (currentTab === 'settings' && activeSettingTab === 'staffs') prepareEditingData();
-                render();
-            }, (err) => console.error(err));
-
-            // Master Checklist
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'masterChecklist'), (snapshot) => {
-                masterChecklist = {};
-                snapshot.docs.forEach(doc => {
-                    const data = doc.data();
-                    masterChecklist[doc.id] = data.items || [];
-                });
-                if (currentTab === 'settings' && activeSettingTab === 'checklist') prepareEditingData();
-                render();
-            }, (err) => console.error(err));
-
-            // Daily Data (Filtered by date in JS per Rule 2)
-            onSnapshot(collection(db, 'artifacts', appId, 'public', 'data', 'dailyOperations'), (snapshot) => {
-                dailyRooms = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                render();
-            }, (err) => console.error(err));
-        }
-
-        // --- Actions (Global exposure for HTML onclicks) ---
-        window.switchTab = (tab) => {
+        function switchTab(tab) {
             currentTab = tab;
             selectedRoomId = null;
             if (tab === 'settings') prepareEditingData();
             render();
             updateTabUI();
-        };
+        }
 
-        window.switchSettingTab = (subTab) => {
+        function updateTabUI() {
+            document.getElementById('tab-btn-tasks').className = currentTab === 'tasks' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+            document.getElementById('tab-btn-settings').className = currentTab === 'settings' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
+        }
+
+        function switchSettingTab(subTab) {
             activeSettingTab = subTab;
             prepareEditingData();
             render();
-        };
+        }
 
-        window.switchChecklistCategory = (cat) => {
+        function switchChecklistCategory(cat) {
             activeChecklistCategory = cat;
             prepareEditingData();
             render();
-        };
+        }
 
         function prepareEditingData() {
             if (activeSettingTab === 'rooms') editingMaster = JSON.parse(JSON.stringify(masterRooms));
@@ -205,12 +156,7 @@
             if (activeSettingTab === 'checklist') editingMaster = JSON.parse(JSON.stringify(masterChecklist[activeChecklistCategory] || []));
         }
 
-        window.updateTabUI = () => {
-            document.getElementById('tab-btn-tasks').className = currentTab === 'tasks' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
-            document.getElementById('tab-btn-settings').className = currentTab === 'settings' ? 'p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600' : 'p-3 rounded-xl transition-all text-gray-400';
-        };
-
-        window.render = () => {
+        function render() {
             const content = document.getElementById('app-content');
             const header = document.getElementById('main-header');
             
@@ -222,16 +168,17 @@
                 if (currentTab === 'tasks') renderTasks(content);
                 else renderSettings(content);
             }
-        };
+        }
 
+        // --- Task List View ---
         function renderTasks(container) {
-            const rooms = dailyRooms.filter(r => r.date === currentDate);
+            const rooms = dailyData[currentDate] || [];
             
             let html = `
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center bg-white border-2 rounded-xl p-2 shadow-sm">
                         <i class="fas fa-calendar-alt text-blue-500 ml-2"></i>
-                        <input type="date" value="${currentDate}" onchange="window.setDate(this.value)" class="ml-2 font-black text-gray-700 outline-none">
+                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; render();" class="ml-2 font-black text-gray-700 outline-none">
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -248,11 +195,11 @@
                     html += `
                         <div class="bg-white rounded-2xl p-5 card-shadow animate-in">
                             <div class="flex justify-between items-start mb-2">
-                                <div class="flex items-end space-x-3 cursor-pointer" onclick="window.openDetail('${room.id}')">
+                                <div class="flex items-end space-x-3 cursor-pointer" onclick="openDetail('${room.id}')">
                                     <span class="text-3xl font-black text-gray-800 leading-none">${mRoom.number}</span>
                                     <span class="text-[10px] font-bold text-gray-400 mb-1">${mRoom.type}</span>
                                 </div>
-                                <button onclick="window.deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500 p-2"><i class="fas fa-trash-alt"></i></button>
+                                <button onclick="deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
                             </div>
                             
                             <div class="flex justify-between items-center mb-4">
@@ -265,21 +212,21 @@
                             <div class="grid grid-cols-2 gap-2 mb-4">
                                 <div class="relative">
                                     <div class="text-[8px] font-black text-blue-400 uppercase ml-1 mb-0.5">Cleaning</div>
-                                    <select onchange="window.updateAssignment('${room.id}', 'staffId', this.value)" class="w-full select-custom bg-blue-50/50 border border-blue-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-blue-700 outline-none focus:ring-1 focus:ring-blue-300">
+                                    <select onchange="updateAssignment('${room.id}', 'staffId', this.value)" class="w-full select-custom bg-blue-50/50 border border-blue-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-blue-700 outline-none focus:ring-1 focus:ring-blue-300 transition-all">
                                         <option value="">未割当</option>
                                         ${masterStaffs.map(s => `<option value="${s.id}" ${room.staffId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
                                     </select>
                                 </div>
                                 <div class="relative">
                                     <div class="text-[8px] font-black text-green-400 uppercase ml-1 mb-0.5">Inspection</div>
-                                    <select onchange="window.updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full select-custom bg-green-50/50 border border-green-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-green-700 outline-none focus:ring-1 focus:ring-green-300">
+                                    <select onchange="updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full select-custom bg-green-50/50 border border-green-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-green-700 outline-none focus:ring-1 focus:ring-green-300 transition-all">
                                         <option value="">未割当</option>
                                         ${masterStaffs.map(s => `<option value="${s.id}" ${room.inspectorId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
                                     </select>
                                 </div>
                             </div>
 
-                            <div class="space-y-1.5 cursor-pointer" onclick="window.openDetail('${room.id}')">
+                            <div class="space-y-1.5 cursor-pointer" onclick="openDetail('${room.id}')">
                                 <div class="flex justify-between text-[9px] font-bold text-gray-400">
                                     <span>進捗</span>
                                     <span>${progress}%</span>
@@ -294,14 +241,20 @@
             }
 
             html += `</div>
-                <button onclick="window.openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center hover:bg-blue-50 transition-colors">
+                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center hover:bg-blue-50 transition-colors">
                     <i class="fas fa-plus mr-2"></i> 稼働部屋を追加
                 </button>`;
             container.innerHTML = html;
         }
 
+        // --- Detail View ---
+        function openDetail(id) {
+            selectedRoomId = id;
+            render();
+        }
+
         function renderRoomDetail(container) {
-            const room = dailyRooms.find(r => r.id === selectedRoomId);
+            const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
             if (!room) { selectedRoomId = null; render(); return; }
             
             const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
@@ -311,7 +264,7 @@
             container.innerHTML = `
                 <div class="bg-gray-50 min-h-screen pb-24 -mt-4 -mx-4 animate-in">
                     <div class="sticky top-0 bg-white/80 backdrop-blur-md shadow-sm z-30 px-4 py-4 flex items-center justify-between border-b">
-                        <button onclick="window.closeDetail()" class="p-2 bg-gray-100 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="fas fa-arrow-left"></i></button>
+                        <button onclick="selectedRoomId=null; render();" class="p-2 bg-gray-100 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="fas fa-arrow-left"></i></button>
                         <div class="text-center">
                             <div class="font-black text-2xl text-gray-800">${mRoom.number}号室</div>
                             <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">${mRoom.type} / ${room.guestType}</div>
@@ -323,14 +276,14 @@
                         <div class="grid grid-cols-2 gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
                             <div class="space-y-1">
                                 <label class="text-[9px] font-black text-gray-400 uppercase ml-1">清掃担当</label>
-                                <select onchange="window.updateAssignment('${room.id}', 'staffId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-blue-600 bg-gray-50/50 outline-none">
+                                <select onchange="updateAssignment('${room.id}', 'staffId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-blue-600 bg-gray-50/50 outline-none">
                                     <option value="">未指定</option>
                                     ${masterStaffs.map(s => `<option value="${s.id}" ${room.staffId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
                                 </select>
                             </div>
                             <div class="space-y-1">
                                 <label class="text-[9px] font-black text-gray-400 uppercase ml-1">点検責任者</label>
-                                <select onchange="window.updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-green-600 bg-gray-50/50 outline-none">
+                                <select onchange="updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-green-600 bg-gray-50/50 outline-none">
                                     <option value="">未指定</option>
                                     ${masterStaffs.map(s => `<option value="${s.id}" ${room.inspectorId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
                                 </select>
@@ -346,7 +299,7 @@
                                 ${currentChecklist.length > 0 ? currentChecklist.map(item => {
                                     const checked = room.checks[item.id];
                                     return `
-                                        <div onclick="window.toggleCheck('${item.id}', '${mRoom.type}')" class="flex items-center p-4 cursor-pointer active:bg-blue-50">
+                                        <div onclick="toggleCheck('${item.id}', '${mRoom.type}')" class="flex items-center p-4 cursor-pointer active:bg-blue-50">
                                             <i class="${checked ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
                                             <div class="flex-1">
                                                 <div class="text-[9px] font-bold text-gray-400">${item.category}</div>
@@ -360,15 +313,15 @@
 
                         <div class="bg-white rounded-xl p-4 border border-gray-100 shadow-sm">
                             <label class="font-bold text-gray-400 text-[10px] block mb-2 uppercase">特記事項</label>
-                            <textarea onchange="window.updateNotes(this.value)" class="w-full border-none rounded-lg p-2 h-20 text-sm font-bold text-gray-700 bg-gray-50 outline-none" placeholder="メモを入力...">${room.notes || ''}</textarea>
+                            <textarea onchange="updateNotes(this.value)" class="w-full border-none rounded-lg p-2 h-20 text-sm font-bold text-gray-700 bg-gray-50 outline-none" placeholder="メモを入力...">${room.notes}</textarea>
                         </div>
 
                         <div class="pt-2 space-y-3">
                             ${room.status !== '清掃完了' && room.status !== '点検済' ? `
-                                <button onclick="window.setStatus('清掃完了')" ${progress < 100 ? 'disabled' : ''} class="w-full py-4 rounded-xl font-black shadow-lg transition-all ${progress === 100 ? 'bg-blue-600 text-white active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">清掃完了を報告</button>
+                                <button onclick="setStatus('清掃完了')" ${progress < 100 ? 'disabled' : ''} class="w-full py-4 rounded-xl font-black shadow-lg transition-all ${progress === 100 ? 'bg-blue-600 text-white active:scale-95' : 'bg-gray-200 text-gray-400 cursor-not-allowed'}">清掃完了を報告</button>
                             ` : ''}
                             ${room.status === '清掃完了' ? `
-                                <button onclick="window.setStatus('点検済')" class="w-full py-4 rounded-xl font-black bg-green-600 text-white shadow-lg active:scale-95">インスペクション完了</button>
+                                <button onclick="setStatus('点検済')" class="w-full py-4 rounded-xl font-black bg-green-600 text-white shadow-lg active:scale-95">インスペクション完了</button>
                             ` : ''}
                         </div>
                     </div>
@@ -376,36 +329,47 @@
             `;
         }
 
+        // --- Assignment Update ---
+        function updateAssignment(roomId, field, staffId) {
+            const list = dailyData[currentDate] || [];
+            const room = list.find(r => r.id === roomId);
+            if (room) {
+                room[field] = staffId;
+                if (selectedRoomId) render();
+            }
+        }
+
+        // --- Master Data Settings ---
         function renderSettings(container) {
             let subContent = '';
-            const saveBtn = `<button onclick="window.saveSettingsMaster()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg active:scale-95"><i class="fas fa-save mr-2"></i> 設定を保存</button>`;
+            const saveBtn = `<button onclick="saveSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl mt-8 flex items-center justify-center shadow-lg"><i class="fas fa-save mr-2"></i> 設定を保存</button>`;
 
             if (activeSettingTab === 'rooms') {
                 subContent = `<div class="space-y-3">
                     ${editingMaster.map((r, i) => `
                         <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
-                            <input type="text" value="${r.number}" oninput="window.updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
-                            <select onchange="window.updateEditingItem(${i}, 'type', this.value)" class="w-1/2 p-2 text-sm bg-gray-50 rounded-lg outline-none border">
+                            <input type="text" value="${r.number}" oninput="updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
+                            <select onchange="updateEditingItem(${i}, 'type', this.value)" class="w-1/2 p-2 text-sm bg-gray-50 rounded-lg outline-none border">
                                 ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
                             </select>
-                            <button onclick="window.removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                            <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
                         </div>`).join('')}
-                    <button onclick="window.addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
+                    <button onclick="addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
                     ${saveBtn}</div>`;
             } else if (activeSettingTab === 'staffs') {
                 subContent = `<div class="space-y-3">
                     ${editingMaster.map((s, i) => `
                         <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
-                            <input type="text" value="${s.name}" oninput="window.updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
-                            <button onclick="window.removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                            <input type="text" value="${s.name}" oninput="updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
+                            <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
                         </div>`).join('')}
-                    <button onclick="window.addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
+                    <button onclick="addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
                     ${saveBtn}</div>`;
             } else if (activeSettingTab === 'checklist') {
                 subContent = `
                 <div class="mb-4 flex gap-2 overflow-x-auto scrollbar-hide pb-2">
                     ${roomCategories.map(cat => `
-                        <button onclick="window.switchChecklistCategory('${cat}')" class="shrink-0 px-4 py-2 rounded-full text-xs font-black transition-all ${activeChecklistCategory === cat ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border text-gray-400'}">
+                        <button onclick="switchChecklistCategory('${cat}')" class="shrink-0 px-4 py-2 rounded-full text-xs font-black transition-all ${activeChecklistCategory === cat ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border text-gray-400'}">
                             ${cat}
                         </button>
                     `).join('')}
@@ -418,12 +382,12 @@
                     ${editingMaster.map((c, i) => `
                         <div class="bg-white p-4 rounded-xl border space-y-2 animate-in">
                             <div class="flex justify-between items-center">
-                                <input type="text" value="${c.category}" oninput="window.updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ (例: 清掃)">
-                                <button onclick="window.removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
+                                <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ (例: 清掃)">
+                                <button onclick="removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
                             </div>
-                            <input type="text" value="${c.text}" oninput="window.updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="項目内容">
+                            <input type="text" value="${c.text}" oninput="updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="項目内容">
                         </div>`).join('')}
-                    <button onclick="window.addToEditing('checklist')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 項目を追加</button>
+                    <button onclick="addToEditing('checklist')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 項目を追加</button>
                     ${saveBtn}</div>`;
             }
 
@@ -432,74 +396,17 @@
                     <div class="flex items-center justify-between mb-8 overflow-x-auto pb-2 scrollbar-hide">
                         <h2 class="text-2xl font-black text-gray-800 shrink-0">設定管理</h2>
                         <div class="flex bg-gray-200 p-1 rounded-xl ml-4">
-                            <button onclick="window.switchSettingTab('rooms')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
-                            <button onclick="window.switchSettingTab('staffs')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
-                            <button onclick="window.switchSettingTab('checklist')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
+                            <button onclick="switchSettingTab('rooms')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
+                            <button onclick="switchSettingTab('staffs')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
+                            <button onclick="switchSettingTab('checklist')" class="px-4 py-2 text-xs font-black rounded-lg transition-all ${activeSettingTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
                         </div>
                     </div>
                     ${subContent}
                 </div>`;
         }
 
-        // --- Data Mutators (Firestore) ---
-        window.setDate = (val) => { currentDate = val; render(); };
-        window.openDetail = (id) => { selectedRoomId = id; render(); };
-        window.closeDetail = () => { selectedRoomId = null; render(); };
-
-        window.updateAssignment = async (docId, field, value) => {
-            if (!user) return;
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyOperations', docId), { [field]: value });
-            } catch (e) { console.error(e); }
-        };
-
-        window.toggleCheck = async (cid, roomType) => {
-            const room = dailyRooms.find(r => r.id === selectedRoomId);
-            if (!room || room.status === '点検済') return;
-            
-            const newChecks = { ...room.checks };
-            newChecks[cid] = !newChecks[cid];
-            
-            const currentChecklist = masterChecklist[roomType] || [];
-            const p = calculateProgress(newChecks, currentChecklist);
-            let newStatus = room.status;
-
-            if (p > 0 && room.status === '未清掃') newStatus = '清掃中';
-            if (p < 100 && room.status === '清掃完了') newStatus = '清掃中';
-
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyOperations', selectedRoomId), {
-                    checks: newChecks,
-                    status: newStatus
-                });
-            } catch (e) { console.error(e); }
-        };
-
-        window.updateNotes = async (v) => {
-            if (!selectedRoomId) return;
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyOperations', selectedRoomId), { notes: v });
-            } catch (e) { console.error(e); }
-        };
-
-        window.setStatus = async (s) => {
-            if (!selectedRoomId) return;
-            try {
-                await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyOperations', selectedRoomId), { status: s });
-                selectedRoomId = null;
-                render();
-            } catch (e) { console.error(e); }
-        };
-
-        window.deleteDailyRoom = async (id) => {
-            if (confirm('予定を削除しますか？')) {
-                try {
-                    await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'dailyOperations', id));
-                } catch (e) { console.error(e); }
-            }
-        };
-
-        window.openAddModal = () => {
+        // --- Modal Logic ---
+        function openAddModal() {
             const modal = document.getElementById('setup-modal');
             const body = document.getElementById('modal-body');
             modal.classList.remove('hidden');
@@ -538,59 +445,44 @@
                     </div>
                 </div>`;
             
-            document.getElementById('modal-save-btn').onclick = async () => {
-                const newOp = {
-                    date: currentDate,
+            document.getElementById('modal-save-btn').onclick = () => {
+                if (!dailyData[currentDate]) dailyData[currentDate] = [];
+                dailyData[currentDate].push({
+                    id: 'd' + Date.now(),
                     roomId: document.getElementById('form-room').value,
                     guestType: document.getElementById('form-type').value,
                     staffId: document.getElementById('form-staff').value,
                     inspectorId: document.getElementById('form-inspector').value,
                     status: '未清掃',
                     checks: {},
-                    notes: '',
-                    createdAt: Date.now()
-                };
-                try {
-                    await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'dailyOperations'), newOp);
-                    closeModal();
-                } catch (e) { console.error(e); }
-            };
-        };
-
-        window.closeModal = () => { document.getElementById('setup-modal').classList.add('hidden'); };
-
-        window.updateEditingItem = (i, f, v) => { editingMaster[i][f] = v; };
-        window.addToEditing = (type) => {
-            if (type === 'rooms') editingMaster.push({ number: '', type: '和室' });
-            if (type === 'staffs') editingMaster.push({ name: '' });
-            if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '清掃', text: '' });
-            render();
-        };
-        window.removeFromEditing = (i) => { editingMaster.splice(i, 1); render(); };
-
-        window.saveSettingsMaster = async () => {
-            if (!user) return;
-            try {
-                if (activeSettingTab === 'rooms') {
-                    // Update room documents individually or replace collection logic
-                    for (const room of editingMaster) {
-                        const rId = room.id || 'r' + Date.now();
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'masterRooms', rId), room);
-                    }
-                } else if (activeSettingTab === 'staffs') {
-                    for (const staff of editingMaster) {
-                        const sId = staff.id || 's' + Date.now();
-                        await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'masterStaffs', sId), staff);
-                    }
-                } else if (activeSettingTab === 'checklist') {
-                    await setDoc(doc(db, 'artifacts', appId, 'public', 'data', 'masterChecklist', activeChecklistCategory), { items: editingMaster });
-                }
-                alert('設定を保存しました。');
+                    notes: ''
+                });
+                closeModal();
                 render();
-            } catch (e) { console.error(e); }
-        };
+            };
+        }
+
+        function closeModal() { document.getElementById('setup-modal').classList.add('hidden'); }
 
         // --- Logic Helpers ---
+        function updateEditingItem(i, f, v) { editingMaster[i][f] = v; }
+        function addToEditing(type) {
+            if (type === 'rooms') editingMaster.push({ id: 'r' + Date.now(), number: '', type: '和室' });
+            if (type === 'staffs') editingMaster.push({ id: 's' + Date.now(), name: '' });
+            if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '清掃', text: '' });
+            render();
+        }
+        function removeFromEditing(i) { editingMaster.splice(i, 1); render(); }
+
+        function saveSettings() {
+            if (activeSettingTab === 'rooms') masterRooms = JSON.parse(JSON.stringify(editingMaster));
+            if (activeSettingTab === 'staffs') masterStaffs = JSON.parse(JSON.stringify(editingMaster));
+            if (activeSettingTab === 'checklist') {
+                masterChecklist[activeChecklistCategory] = JSON.parse(JSON.stringify(editingMaster));
+            }
+            render();
+        }
+
         function calculateProgress(checks, currentChecklist) {
             if (!checks || currentChecklist.length === 0) return 0;
             const completed = currentChecklist.filter(item => checks[item.id]).length;
@@ -607,8 +499,39 @@
             }
         }
 
-        // Start App
-        init();
+        function deleteDailyRoom(id) {
+            if (confirm('予定を削除しますか？')) {
+                dailyData[currentDate] = dailyData[currentDate].filter(r => r.id !== id);
+                render();
+            }
+        }
+
+        function toggleCheck(cid, roomType) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            if (room.status === '点検済') return;
+            room.checks[cid] = !room.checks[cid];
+            
+            const currentChecklist = masterChecklist[roomType] || [];
+            const p = calculateProgress(room.checks, currentChecklist);
+            
+            if (p > 0 && room.status === '未清掃') room.status = '清掃中';
+            if (p < 100 && room.status === '清掃完了') room.status = '清掃中';
+            render();
+        }
+
+        function updateNotes(v) {
+            const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
+            if (room) room.notes = v;
+        }
+
+        function setStatus(s) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            room.status = s;
+            selectedRoomId = null;
+            render();
+        }
+
+        window.onload = init;
     </script>
 </body>
 </html>
