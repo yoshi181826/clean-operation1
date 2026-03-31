@@ -14,6 +14,15 @@
         .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
         .animate-in { animation: fadeIn 0.3s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        
+        .select-custom {
+            appearance: none;
+            -webkit-appearance: none;
+            background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+            background-repeat: no-repeat;
+            background-position: right 0.5rem center;
+            background-size: 0.75rem;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 pb-20">
@@ -64,29 +73,49 @@
         // --- State ---
         let currentTab = 'tasks';
         let activeSettingTab = 'rooms';
+        let activeChecklistCategory = '和室'; 
         let currentDate = new Date().toISOString().split('T')[0];
         let selectedRoomId = null;
+
+        const roomCategories = ['和室', '洋室', 'プレミアムスイート', '貴賓室', 'モダンスイート'];
 
         // Master Data
         let masterRooms = [
             { id: 'r1', number: '201', type: '和室' },
             { id: 'r2', number: '202', type: '洋室' },
-            { id: 'r3', number: '203', type: '和洋室' }
+            { id: 'r3', number: '203', type: 'プレミアムスイート' },
+            { id: 'r4', number: '205', type: 'モダンスイート' }
         ];
 
         let masterStaffs = [
-            { id: 's1', name: '田中', role: 'staff' },
-            { id: 's2', name: '佐藤', role: 'inspector' },
-            { id: 's3', name: '鈴木', role: 'staff' }
+            { id: 's1', name: '田中' },
+            { id: 's2', name: '佐藤' },
+            { id: 's3', name: '鈴木' },
+            { id: 's4', name: '高橋' }
         ];
 
-        let masterChecklist = [
-            { id: 'c1', category: '準備', text: '換気・照明確認' },
-            { id: 'c2', category: '回収', text: 'ゴミ・リネン回収' },
-            { id: 'c3', category: '水回り', text: 'バス・トイレ清掃' },
-            { id: 'c4', category: 'ベッド', text: 'ベッドメイク' },
-            { id: 'c5', category: '最終', text: '掃除機・施錠' }
-        ];
+        let masterChecklist = {
+            '和室': [
+                { id: 'c1', category: '清掃', text: '畳の拭き掃除' },
+                { id: 'c2', category: '清掃', text: '障子の確認' }
+            ],
+            '洋室': [
+                { id: 'c3', category: '清掃', text: 'カーペット掃除機' },
+                { id: 'c4', category: '清掃', text: 'デスク周り除菌' }
+            ],
+            'プレミアムスイート': [
+                { id: 'c5', category: '清掃', text: 'ウェルカムフルーツ準備' },
+                { id: 'c6', category: '清掃', text: '高級アメニティ補充' }
+            ],
+            '貴賓室': [
+                { id: 'c7', category: '清掃', text: '全調度品の乾拭き' },
+                { id: 'c8', category: '清掃', text: '生花の鮮度確認' }
+            ],
+            'モダンスイート': [
+                { id: 'c9', category: '清掃', text: 'スマート家電動作確認' },
+                { id: 'c10', category: '清掃', text: '間接照明ホコリ除去' }
+            ]
+        };
 
         let editingMaster = [];
         let dailyData = {}; 
@@ -115,10 +144,16 @@
             render();
         }
 
+        function switchChecklistCategory(cat) {
+            activeChecklistCategory = cat;
+            prepareEditingData();
+            render();
+        }
+
         function prepareEditingData() {
             if (activeSettingTab === 'rooms') editingMaster = JSON.parse(JSON.stringify(masterRooms));
             if (activeSettingTab === 'staffs') editingMaster = JSON.parse(JSON.stringify(masterStaffs));
-            if (activeSettingTab === 'checklist') editingMaster = JSON.parse(JSON.stringify(masterChecklist));
+            if (activeSettingTab === 'checklist') editingMaster = JSON.parse(JSON.stringify(masterChecklist[activeChecklistCategory] || []));
         }
 
         function render() {
@@ -154,25 +189,48 @@
             } else {
                 rooms.forEach(room => {
                     const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
-                    const staff = masterStaffs.find(s => s.id === room.staffId);
-                    const progress = calculateProgress(room.checks);
+                    const currentChecklist = masterChecklist[mRoom.type] || [];
+                    const progress = calculateProgress(room.checks, currentChecklist);
                     
                     html += `
                         <div class="bg-white rounded-2xl p-5 card-shadow animate-in">
                             <div class="flex justify-between items-start mb-2">
                                 <div class="flex items-end space-x-3 cursor-pointer" onclick="openDetail('${room.id}')">
                                     <span class="text-3xl font-black text-gray-800 leading-none">${mRoom.number}</span>
-                                    <span class="text-xs font-bold text-gray-400 mb-1">${mRoom.type}</span>
+                                    <span class="text-[10px] font-bold text-gray-400 mb-1">${mRoom.type}</span>
                                 </div>
                                 <button onclick="deleteDailyRoom('${room.id}')" class="text-gray-200 hover:text-red-500"><i class="fas fa-trash-alt"></i></button>
                             </div>
-                            <div class="flex justify-between items-center mb-3">
+                            
+                            <div class="flex justify-between items-center mb-4">
                                 <span class="status-badge ${getStatusColor(room.status)}">${room.status}</span>
-                                <div class="text-[10px] font-bold text-gray-500">
-                                    <i class="fas fa-user-circle mr-1"></i>${staff ? staff.name : '未割当'}
+                                <div class="text-[10px] font-bold text-gray-400">
+                                    <i class="fas fa-tag mr-1"></i>${room.guestType}
                                 </div>
                             </div>
+
+                            <div class="grid grid-cols-2 gap-2 mb-4">
+                                <div class="relative">
+                                    <div class="text-[8px] font-black text-blue-400 uppercase ml-1 mb-0.5">Cleaning</div>
+                                    <select onchange="updateAssignment('${room.id}', 'staffId', this.value)" class="w-full select-custom bg-blue-50/50 border border-blue-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-blue-700 outline-none focus:ring-1 focus:ring-blue-300 transition-all">
+                                        <option value="">未割当</option>
+                                        ${masterStaffs.map(s => `<option value="${s.id}" ${room.staffId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                                    </select>
+                                </div>
+                                <div class="relative">
+                                    <div class="text-[8px] font-black text-green-400 uppercase ml-1 mb-0.5">Inspection</div>
+                                    <select onchange="updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full select-custom bg-green-50/50 border border-green-100 rounded-lg py-1.5 pl-2 pr-6 text-[10px] font-bold text-green-700 outline-none focus:ring-1 focus:ring-green-300 transition-all">
+                                        <option value="">未割当</option>
+                                        ${masterStaffs.map(s => `<option value="${s.id}" ${room.inspectorId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                                    </select>
+                                </div>
+                            </div>
+
                             <div class="space-y-1.5 cursor-pointer" onclick="openDetail('${room.id}')">
+                                <div class="flex justify-between text-[9px] font-bold text-gray-400">
+                                    <span>進捗</span>
+                                    <span>${progress}%</span>
+                                </div>
                                 <div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden">
                                     <div class="h-full transition-all duration-500 ${progress === 100 ? 'bg-green-500' : 'bg-blue-500'}" style="width: ${progress}%"></div>
                                 </div>
@@ -183,7 +241,7 @@
             }
 
             html += `</div>
-                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center">
+                <button onclick="openAddModal()" class="mt-8 w-full border-2 border-dashed border-blue-200 bg-blue-50/30 text-blue-500 font-black py-5 rounded-2xl flex items-center justify-center hover:bg-blue-50 transition-colors">
                     <i class="fas fa-plus mr-2"></i> 稼働部屋を追加
                 </button>`;
             container.innerHTML = html;
@@ -200,9 +258,8 @@
             if (!room) { selectedRoomId = null; render(); return; }
             
             const mRoom = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
-            const staff = masterStaffs.find(s => s.id === room.staffId);
-            const inspector = masterStaffs.find(s => s.id === room.inspectorId);
-            const progress = calculateProgress(room.checks);
+            const currentChecklist = masterChecklist[mRoom.type] || [];
+            const progress = calculateProgress(room.checks, currentChecklist);
 
             container.innerHTML = `
                 <div class="bg-gray-50 min-h-screen pb-24 -mt-4 -mx-4 animate-in">
@@ -210,35 +267,39 @@
                         <button onclick="selectedRoomId=null; render();" class="p-2 bg-gray-100 text-gray-600 rounded-full w-10 h-10 flex items-center justify-center"><i class="fas fa-arrow-left"></i></button>
                         <div class="text-center">
                             <div class="font-black text-2xl text-gray-800">${mRoom.number}号室</div>
-                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">${room.guestType}</div>
+                            <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">${mRoom.type} / ${room.guestType}</div>
                         </div>
                         <div class="status-badge ${getStatusColor(room.status)}">${room.status}</div>
                     </div>
                     
                     <div class="p-4 max-w-2xl mx-auto space-y-4 mt-2">
-                        <!-- Staff Info -->
-                        <div class="grid grid-cols-2 gap-3">
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                <div class="text-[9px] font-black text-gray-400 uppercase">清掃担当</div>
-                                <div class="font-bold text-gray-700">${staff ? staff.name : '未指定'}</div>
+                        <div class="grid grid-cols-2 gap-3 bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                            <div class="space-y-1">
+                                <label class="text-[9px] font-black text-gray-400 uppercase ml-1">清掃担当</label>
+                                <select onchange="updateAssignment('${room.id}', 'staffId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-blue-600 bg-gray-50/50 outline-none">
+                                    <option value="">未指定</option>
+                                    ${masterStaffs.map(s => `<option value="${s.id}" ${room.staffId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                                </select>
                             </div>
-                            <div class="bg-white p-3 rounded-xl border border-gray-100 shadow-sm">
-                                <div class="text-[9px] font-black text-gray-400 uppercase">点検責任者</div>
-                                <div class="font-bold text-gray-700">${inspector ? inspector.name : '未指定'}</div>
+                            <div class="space-y-1">
+                                <label class="text-[9px] font-black text-gray-400 uppercase ml-1">点検責任者</label>
+                                <select onchange="updateAssignment('${room.id}', 'inspectorId', this.value)" class="w-full border border-gray-100 rounded-xl p-2.5 text-sm font-bold text-green-600 bg-gray-50/50 outline-none">
+                                    <option value="">未指定</option>
+                                    ${masterStaffs.map(s => `<option value="${s.id}" ${room.inspectorId === s.id ? 'selected' : ''}>${s.name}</option>`).join('')}
+                                </select>
                             </div>
                         </div>
 
-                        <!-- Progress Section -->
                         <div class="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                             <div class="p-4 bg-gray-50/50 flex justify-between items-center border-b">
-                                <span class="font-bold text-sm text-gray-600">チェック項目</span>
+                                <span class="font-bold text-sm text-gray-600">${mRoom.type}チェック項目</span>
                                 <span class="text-sm font-black text-blue-600">${progress}%</span>
                             </div>
                             <div class="divide-y divide-gray-50">
-                                ${masterChecklist.map(item => {
+                                ${currentChecklist.length > 0 ? currentChecklist.map(item => {
                                     const checked = room.checks[item.id];
                                     return `
-                                        <div onclick="toggleCheck('${item.id}')" class="flex items-center p-4 cursor-pointer active:bg-blue-50">
+                                        <div onclick="toggleCheck('${item.id}', '${mRoom.type}')" class="flex items-center p-4 cursor-pointer active:bg-blue-50">
                                             <i class="${checked ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
                                             <div class="flex-1">
                                                 <div class="text-[9px] font-bold text-gray-400">${item.category}</div>
@@ -246,7 +307,7 @@
                                             </div>
                                         </div>
                                     `;
-                                }).join('')}
+                                }).join('') : '<div class="p-8 text-center text-gray-300 font-bold">項目が設定されていません</div>'}
                             </div>
                         </div>
 
@@ -268,6 +329,16 @@
             `;
         }
 
+        // --- Assignment Update ---
+        function updateAssignment(roomId, field, staffId) {
+            const list = dailyData[currentDate] || [];
+            const room = list.find(r => r.id === roomId);
+            if (room) {
+                room[field] = staffId;
+                if (selectedRoomId) render();
+            }
+        }
+
         // --- Master Data Settings ---
         function renderSettings(container) {
             let subContent = '';
@@ -278,7 +349,9 @@
                     ${editingMaster.map((r, i) => `
                         <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
                             <input type="text" value="${r.number}" oninput="updateEditingItem(${i}, 'number', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="号室">
-                            <input type="text" value="${r.type}" oninput="updateEditingItem(${i}, 'type', this.value)" class="w-1/3 p-2 text-sm bg-gray-50 rounded-lg outline-none" placeholder="タイプ">
+                            <select onchange="updateEditingItem(${i}, 'type', this.value)" class="w-1/2 p-2 text-sm bg-gray-50 rounded-lg outline-none border">
+                                ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                            </select>
                             <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
                         </div>`).join('')}
                     <button onclick="addToEditing('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button>
@@ -286,22 +359,30 @@
             } else if (activeSettingTab === 'staffs') {
                 subContent = `<div class="space-y-3">
                     ${editingMaster.map((s, i) => `
-                        <div class="flex flex-col md:flex-row gap-2 bg-white p-3 rounded-xl border">
+                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border">
                             <input type="text" value="${s.name}" oninput="updateEditingItem(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
-                            <select onchange="updateEditingItem(${i}, 'role', this.value)" class="p-2 text-sm bg-gray-50 rounded-lg outline-none border">
-                                <option value="staff" ${s.role === 'staff' ? 'selected' : ''}>清掃スタッフ</option>
-                                <option value="inspector" ${s.role === 'inspector' ? 'selected' : ''}>インスペクター</option>
-                            </select>
                             <button onclick="removeFromEditing(${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
                         </div>`).join('')}
                     <button onclick="addToEditing('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button>
                     ${saveBtn}</div>`;
             } else if (activeSettingTab === 'checklist') {
-                subContent = `<div class="space-y-4">
+                subContent = `
+                <div class="mb-4 flex gap-2 overflow-x-auto scrollbar-hide pb-2">
+                    ${roomCategories.map(cat => `
+                        <button onclick="switchChecklistCategory('${cat}')" class="shrink-0 px-4 py-2 rounded-full text-xs font-black transition-all ${activeChecklistCategory === cat ? 'bg-blue-600 text-white shadow-lg' : 'bg-white border text-gray-400'}">
+                            ${cat}
+                        </button>
+                    `).join('')}
+                </div>
+                <div class="space-y-4">
+                    <div class="flex justify-between items-center px-1">
+                        <span class="text-xs font-black text-gray-400 uppercase">${activeChecklistCategory}の項目設定</span>
+                        <span class="text-[10px] font-bold text-blue-500">${editingMaster.length} 項目</span>
+                    </div>
                     ${editingMaster.map((c, i) => `
-                        <div class="bg-white p-4 rounded-xl border space-y-2">
+                        <div class="bg-white p-4 rounded-xl border space-y-2 animate-in">
                             <div class="flex justify-between items-center">
-                                <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ">
+                                <input type="text" value="${c.category}" oninput="updateEditingItem(${i}, 'category', this.value)" class="text-[10px] font-black text-blue-500 uppercase outline-none" placeholder="カテゴリ (例: 清掃)">
                                 <button onclick="removeFromEditing(${i})" class="text-red-200"><i class="fas fa-times"></i></button>
                             </div>
                             <input type="text" value="${c.text}" oninput="updateEditingItem(${i}, 'text', this.value)" class="w-full p-2 font-bold text-gray-700 bg-gray-50 rounded-lg outline-none" placeholder="項目内容">
@@ -329,9 +410,6 @@
             const modal = document.getElementById('setup-modal');
             const body = document.getElementById('modal-body');
             modal.classList.remove('hidden');
-            
-            const staffs = masterStaffs.filter(s => s.role === 'staff');
-            const inspectors = masterStaffs.filter(s => s.role === 'inspector');
 
             body.innerHTML = `
                 <div class="space-y-4">
@@ -354,14 +432,14 @@
                             <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">清掃担当</label>
                             <select id="form-staff" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
                                 <option value="">未指定</option>
-                                ${staffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                                ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
                             </select>
                         </div>
                         <div>
                             <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">点検者</label>
                             <select id="form-inspector" class="w-full border-2 rounded-xl p-3 bg-white font-bold outline-none">
                                 <option value="">未指定</option>
-                                ${inspectors.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                                ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
                             </select>
                         </div>
                     </div>
@@ -389,9 +467,9 @@
         // --- Logic Helpers ---
         function updateEditingItem(i, f, v) { editingMaster[i][f] = v; }
         function addToEditing(type) {
-            if (type === 'rooms') editingMaster.push({ id: 'r' + Date.now(), number: '', type: '' });
-            if (type === 'staffs') editingMaster.push({ id: 's' + Date.now(), name: '', role: 'staff' });
-            if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '新規', text: '' });
+            if (type === 'rooms') editingMaster.push({ id: 'r' + Date.now(), number: '', type: '和室' });
+            if (type === 'staffs') editingMaster.push({ id: 's' + Date.now(), name: '' });
+            if (type === 'checklist') editingMaster.push({ id: 'c' + Date.now(), category: '清掃', text: '' });
             render();
         }
         function removeFromEditing(i) { editingMaster.splice(i, 1); render(); }
@@ -399,14 +477,16 @@
         function saveSettings() {
             if (activeSettingTab === 'rooms') masterRooms = JSON.parse(JSON.stringify(editingMaster));
             if (activeSettingTab === 'staffs') masterStaffs = JSON.parse(JSON.stringify(editingMaster));
-            if (activeSettingTab === 'checklist') masterChecklist = JSON.parse(JSON.stringify(editingMaster));
+            if (activeSettingTab === 'checklist') {
+                masterChecklist[activeChecklistCategory] = JSON.parse(JSON.stringify(editingMaster));
+            }
             render();
         }
 
-        function calculateProgress(checks) {
-            if (!checks || masterChecklist.length === 0) return 0;
-            const completed = Object.values(checks).filter(v => v).length;
-            return Math.round((completed / masterChecklist.length) * 100);
+        function calculateProgress(checks, currentChecklist) {
+            if (!checks || currentChecklist.length === 0) return 0;
+            const completed = currentChecklist.filter(item => checks[item.id]).length;
+            return Math.round((completed / currentChecklist.length) * 100);
         }
 
         function getStatusColor(status) {
@@ -426,11 +506,14 @@
             }
         }
 
-        function toggleCheck(cid) {
+        function toggleCheck(cid, roomType) {
             const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
             if (room.status === '点検済') return;
             room.checks[cid] = !room.checks[cid];
-            const p = calculateProgress(room.checks);
+            
+            const currentChecklist = masterChecklist[roomType] || [];
+            const p = calculateProgress(room.checks, currentChecklist);
+            
             if (p > 0 && room.status === '未清掃') room.status = '清掃中';
             if (p < 100 && room.status === '清掃完了') room.status = '清掃中';
             render();
