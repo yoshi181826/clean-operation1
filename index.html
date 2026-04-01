@@ -16,7 +16,7 @@
         button, select, input { min-height: 44px; }
         
         /* Drag & Drop Styles */
-        .dragging { opacity: 0.5; transform: scale(0.98); }
+        .dragging { opacity: 0.4; transform: scale(0.98); background-color: #f3f4f6 !important; }
         .drag-over { border-top: 2px solid #3b82f6; }
     </style>
 </head>
@@ -245,7 +245,7 @@
                     html += `
                         <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
                             <h4 class="font-black text-blue-600 text-xs mb-5 uppercase tracking-widest flex items-center">
-                                <i class="fas fa-list mr-2 opacity-50"></i>${cat} (ドラッグで並び替え可)
+                                <i class="fas fa-grip-vertical mr-2 opacity-50"></i>${cat} (ドラッグで並び替え)
                             </h4>
                             <div class="space-y-2 drag-container" data-category="${cat}">
                                 ${items.map((it, idx) => `
@@ -253,6 +253,7 @@
                                          ondragstart="handleDragStart(event, '${cat}', ${idx})"
                                          ondragover="handleDragOver(event)"
                                          ondragleave="handleDragLeave(event)"
+                                         ondragend="handleDragEnd(event)"
                                          ondrop="handleDrop(event, '${cat}', ${idx})"
                                          class="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl cursor-move active:scale-95 transition-all">
                                         <div class="p-3 text-gray-300"><i class="fas fa-grip-lines"></i></div>
@@ -277,18 +278,20 @@
             container.innerHTML = html;
         }
 
-        // --- Drag and Drop Handlers ---
+        // --- Drag and Drop Handlers (PC & Tablet) ---
         let draggedIndex = null;
         let draggedCategory = null;
 
         function handleDragStart(e, cat, idx) {
             draggedIndex = idx;
             draggedCategory = cat;
+            // e.dataTransfer.effectAllowed = 'move'; // PCブラウザ向けの明示的な指定
             e.target.classList.add('dragging');
         }
 
         function handleDragOver(e) {
-            e.preventDefault();
+            e.preventDefault(); // ドロップを許可するために必須
+            e.dataTransfer.dropEffect = 'move';
             const target = e.currentTarget;
             if (target && !target.classList.contains('dragging')) {
                 target.classList.add('drag-over');
@@ -299,9 +302,17 @@
             e.currentTarget.classList.remove('drag-over');
         }
 
+        function handleDragEnd(e) {
+            e.target.classList.remove('dragging');
+            // 全ての要素からdrag-overを消す
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+        }
+
         function handleDrop(e, cat, idx) {
             e.preventDefault();
             e.currentTarget.classList.remove('drag-over');
+            
+            // カテゴリが違う場合や、同じ位置の場合は何もしない
             if (draggedCategory !== cat || draggedIndex === null || draggedIndex === idx) return;
 
             const list = window.masterChecklist[cat];
