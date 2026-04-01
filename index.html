@@ -6,6 +6,16 @@
     <title>TAIANKAKU Management System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    
+    <script type="importmap">
+      {
+        "imports": {
+          "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
+          "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js"
+        }
+      }
+    </script>
+
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
         body { font-family: 'Noto Sans JP', sans-serif; }
@@ -27,7 +37,6 @@
 </head>
 <body class="bg-gray-50 text-gray-900 pb-20">
 
-    <!-- Header -->
     <header id="main-header" class="bg-white border-b sticky top-0 z-40 shadow-sm px-6 py-4 flex justify-between items-center">
         <div class="flex items-center space-x-3">
             <div class="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-100">
@@ -48,12 +57,9 @@
         </div>
     </header>
 
-    <!-- Main Content -->
     <main id="app-content" class="max-w-3xl mx-auto p-4">
-        <!-- Views injected here -->
-    </main>
+        </main>
 
-    <!-- Modal for adding rooms -->
     <div id="setup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
         <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md max-h-[90vh] overflow-hidden flex flex-col scale-95 transition-transform">
             <div class="flex justify-between items-center p-5 border-b">
@@ -61,8 +67,7 @@
                 <button onclick="closeModal()" class="text-gray-400 p-1"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-5 space-y-5 overflow-y-auto" id="modal-body">
-                <!-- Form Content -->
-            </div>
+                </div>
             <div class="p-5 border-t">
                 <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg">登録する</button>
             </div>
@@ -76,6 +81,7 @@
         let activeChecklistCategory = '和室'; 
         let currentDate = new Date().toISOString().split('T')[0];
         let selectedRoomId = null;
+        let unsubscribe = null; // Firestoreの監視解除用
 
         const roomCategories = ['和室', '洋室', 'プレミアムスイート', '貴賓室', 'モダンスイート'];
 
@@ -120,9 +126,21 @@
         let editingMaster = [];
         let dailyData = {}; 
 
-        // --- Navigation ---
+        // --- Navigation & Cloud Sync ---
         function init() {
-            render();
+            // 前の監視があれば解除
+            if (unsubscribe) unsubscribe();
+            
+            // クラウドからデータをリアルタイム取得
+            if (window.loadFromCloud) {
+                unsubscribe = window.loadFromCloud(currentDate, (cloudData) => {
+                    dailyData[currentDate] = cloudData || [];
+                    render();
+                });
+            } else {
+                // Firebaseがまだ準備できていない場合の待機
+                setTimeout(init, 500);
+            }
         }
 
         function switchTab(tab) {
@@ -178,7 +196,7 @@
                 <div class="flex items-center justify-between mb-6">
                     <div class="flex items-center bg-white border-2 rounded-xl p-2 shadow-sm">
                         <i class="fas fa-calendar-alt text-blue-500 ml-2"></i>
-                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; render();" class="ml-2 font-black text-gray-700 outline-none">
+                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; init();" class="ml-2 font-black text-gray-700 outline-none">
                     </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -329,12 +347,13 @@
             `;
         }
 
-        // --- Assignment Update ---
+        // --- Assignment Update & Cloud Sync ---
         function updateAssignment(roomId, field, staffId) {
             const list = dailyData[currentDate] || [];
             const room = list.find(r => r.id === roomId);
             if (room) {
                 room[field] = staffId;
+                window.saveToCloud(currentDate, list); // クラウド保存
                 if (selectedRoomId) render();
             }
         }
@@ -405,7 +424,7 @@
                 </div>`;
         }
 
-        // --- Modal Logic ---
+        // --- Modal Logic & Save to Cloud ---
         function openAddModal() {
             const modal = document.getElementById('setup-modal');
             const body = document.getElementById('modal-body');
@@ -447,7 +466,7 @@
             
             document.getElementById('modal-save-btn').onclick = () => {
                 if (!dailyData[currentDate]) dailyData[currentDate] = [];
-                dailyData[currentDate].push({
+                const newRoom = {
                     id: 'd' + Date.now(),
                     roomId: document.getElementById('form-room').value,
                     guestType: document.getElementById('form-type').value,
@@ -456,7 +475,12 @@
                     status: '未清掃',
                     checks: {},
                     notes: ''
-                });
+                };
+                dailyData[currentDate].push(newRoom);
+                
+                // クラウド保存
+                window.saveToCloud(currentDate, dailyData[currentDate]);
+                
                 closeModal();
                 render();
             };
@@ -502,6 +526,7 @@
         function deleteDailyRoom(id) {
             if (confirm('予定を削除しますか？')) {
                 dailyData[currentDate] = dailyData[currentDate].filter(r => r.id !== id);
+                window.saveToCloud(currentDate, dailyData[currentDate]); // クラウド保存
                 render();
             }
         }
@@ -516,22 +541,68 @@
             
             if (p > 0 && room.status === '未清掃') room.status = '清掃中';
             if (p < 100 && room.status === '清掃完了') room.status = '清掃中';
+            
+            window.saveToCloud(currentDate, dailyData[currentDate]); // クラウド保存
             render();
         }
 
         function updateNotes(v) {
             const room = (dailyData[currentDate] || []).find(r => r.id === selectedRoomId);
-            if (room) room.notes = v;
+            if (room) {
+                room.notes = v;
+                window.saveToCloud(currentDate, dailyData[currentDate]); // クラウド保存
+            }
         }
 
         function setStatus(s) {
             const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
             room.status = s;
+            window.saveToCloud(currentDate, dailyData[currentDate]); // クラウド保存
             selectedRoomId = null;
             render();
         }
 
         window.onload = init;
+    </script>
+
+    <script type="module">
+        import { initializeApp } from "firebase/app";
+        import { getFirestore, doc, onSnapshot, setDoc } from "firebase/firestore";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAlkP5jbYdc8gYgJYtIujePKRxyNhWVTMc",
+            authDomain: "clean-a6d96.firebaseapp.com",
+            projectId: "clean-a6d96",
+            storageBucket: "clean-a6d96.firebasestorage.app",
+            messagingSenderId: "306022136396",
+            appId: "1:306022136396:web:a544ddb24ac1d5a02e12e9"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const db = getFirestore(app);
+
+        // クラウドへ保存する共通関数
+        window.saveToCloud = async (date, data) => {
+            try {
+                const docRef = doc(db, "dailyOperations", date);
+                await setDoc(docRef, { rooms: data || [] }, { merge: true });
+                console.log("Cloud Updated.");
+            } catch (e) {
+                console.error("Firebase Save Error:", e);
+            }
+        };
+
+        // クラウドから読み込み・監視する共通関数
+        window.loadFromCloud = (date, callback) => {
+            const docRef = doc(db, "dailyOperations", date);
+            return onSnapshot(docRef, (docSnap) => {
+                if (docSnap.exists()) {
+                    callback(docSnap.data().rooms);
+                } else {
+                    callback([]);
+                }
+            });
+        };
     </script>
 </body>
 </html>
