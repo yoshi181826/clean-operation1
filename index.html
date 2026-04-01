@@ -19,8 +19,9 @@
         .dragging { opacity: 0.4; transform: scale(0.98); background-color: #f3f4f6 !important; }
         .drag-over { border-top: 2px solid #3b82f6; }
         
-        /* 防止ドラッグ干渉 */
-        .no-drag { pointer-events: auto; }
+        /* スマホ用：ドラッグハンドル以外でのドラッグを無効化 */
+        .drag-handle { cursor: grab; touch-action: none; }
+        .drag-handle:active { cursor: grabbing; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 pb-24">
@@ -51,7 +52,7 @@
         </div>
     </main>
 
-    <!-- モーダル（共通） -->
+    <!-- モーダル -->
     <div id="setup-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
         <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in">
             <div class="flex justify-between items-center p-6 border-b">
@@ -177,7 +178,6 @@
                 html += `
                 <div class="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 animate-in relative overflow-hidden active:bg-gray-50 transition-colors" onclick="selectedRoomId='${room.id}'; render()">
                     <div class="absolute top-0 left-0 h-1.5 bg-blue-500 transition-all duration-500 z-10" style="width: ${progress}%"></div>
-                    
                     <div class="flex justify-between items-start pt-2">
                         <div>
                             <span class="text-3xl font-black text-gray-800">${m.number}</span>
@@ -186,14 +186,6 @@
                         <div class="flex flex-col items-end">
                             <span class="status-badge ${getStatusColor(room.status)} mb-2">${room.status}</span>
                             <span class="text-[10px] font-bold text-gray-300 italic">${progress}% 完了</span>
-                        </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-3 mt-4">
-                        <div class="bg-gray-50 p-2.5 rounded-xl text-[11px] font-bold text-gray-500 flex items-center">
-                            <i class="fas fa-user-edit mr-2 text-blue-300"></i> ${window.masterStaffs.find(s => s.id === room.staffId)?.name || '未定'}
-                        </div>
-                        <div class="bg-gray-50 p-2.5 rounded-xl text-[11px] font-bold text-gray-500 flex items-center">
-                            <i class="fas fa-user-check mr-2 text-green-300"></i> ${window.masterStaffs.find(s => s.id === room.inspectorId)?.name || '未定'}
                         </div>
                     </div>
                 </div>`;
@@ -246,10 +238,10 @@
                     const items = window.masterChecklist[cat] || [];
                     html += `
                         <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                            <h4 class="font-black text-blue-600 text-xs mb-5 uppercase tracking-widest flex items-center">
-                                <i class="fas fa-grip-vertical mr-2 opacity-50"></i>${cat} (ドラッグで移動)
+                            <h4 class="font-black text-blue-600 text-[10px] mb-5 uppercase tracking-widest flex items-center">
+                                <i class="fas fa-list mr-2 opacity-50"></i>${cat}
                             </h4>
-                            <div class="space-y-2 drag-container" data-category="${cat}">
+                            <div class="space-y-2">
                                 ${items.map((it, idx) => `
                                     <div draggable="true" 
                                          ondragstart="handleDragStart(event, '${cat}', ${idx})"
@@ -257,22 +249,26 @@
                                          ondragleave="handleDragLeave(event)"
                                          ondragend="handleDragEnd(event)"
                                          ondrop="handleDrop(event, '${cat}', ${idx})"
-                                         class="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl cursor-move transition-all">
-                                        <div class="p-3 text-gray-300 pointer-events-none"><i class="fas fa-grip-lines"></i></div>
+                                         class="flex items-center space-x-2 bg-gray-50 rounded-xl border border-transparent transition-all">
+                                        <!-- ハンドル部分のみドラッグ可能に見せる -->
+                                        <div class="p-4 text-gray-300 drag-handle">
+                                            <i class="fas fa-grip-lines"></i>
+                                        </div>
                                         <input type="text" value="${it.text}" 
                                             onchange="updateChecklistItemText('${cat}', ${idx}, this.value)" 
-                                            class="flex-1 p-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
+                                            class="flex-1 py-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
+                                        <!-- 削除ボタンを明確に分離 -->
                                         <button type="button" 
-                                            onclick="event.stopPropagation(); deleteChecklistItem('${cat}', ${idx});" 
-                                            class="text-red-400 p-3 hover:bg-red-50 rounded-lg transition-colors no-drag">
-                                            <i class="fas fa-times-circle"></i>
+                                            onclick="deleteChecklistItem('${cat}', ${idx})" 
+                                            class="text-red-400 w-12 h-12 flex items-center justify-center hover:bg-red-50 rounded-xl transition-colors">
+                                            <i class="fas fa-times-circle text-lg"></i>
                                         </button>
                                     </div>
                                 `).join('')}
                                 <button type="button" 
                                     onclick="addChecklistItem('${cat}')" 
-                                    class="text-xs font-bold text-blue-400 mt-4 px-2 hover:text-blue-600">
-                                    + 項目追加
+                                    class="w-full py-3 text-xs font-black text-blue-500 mt-2 bg-blue-50/50 rounded-xl border-2 border-dashed border-blue-100">
+                                    + ${cat}に項目を追加
                                 </button>
                             </div>
                         </div>`;
@@ -298,6 +294,7 @@
         }
 
         function deleteChecklistItem(cat, idx) {
+            // イベント停止は不要（バブリングしてもsplice->renderなので問題なし）
             if (window.masterChecklist[cat]) {
                 window.masterChecklist[cat].splice(idx, 1);
                 render();
@@ -310,13 +307,13 @@
             render();
         }
 
-        // --- Drag and Drop Handlers (PC & Tablet) ---
+        // --- Drag and Drop Handlers ---
         let draggedIndex = null;
         let draggedCategory = null;
 
         function handleDragStart(e, cat, idx) {
-            // 入力フィールドにフォーカスがあるときはドラッグを開始しない
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') {
+            // グリップ部分または背景からのみ開始（inputやbuttonからは開始させない）
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) {
                 e.preventDefault();
                 return;
             }
@@ -458,33 +455,21 @@
                         <button onclick="updateStatus('清掃完了')" class="bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg">清掃完了</button>
                         <button onclick="updateStatus('点検済')" class="bg-green-600 text-white py-5 rounded-2xl font-black shadow-lg">点検完了</button>
                     </div>
-                    <button onclick="deleteDailyRoom('${room.id}')" class="w-full mt-6 text-gray-300 text-xs font-bold py-2"><i class="fas fa-trash-alt mr-1"></i>予定を削除</button>
                 </div>`;
         }
 
         function toggleCheck(cid) {
             const rooms = dailyData[currentDate];
             const room = rooms.find(r => r.id === selectedRoomId);
+            if (!room.checks) room.checks = {};
             room.checks[cid] = !room.checks[cid];
-            const m = window.masterRooms.find(r => r.id === room.roomId);
-            const checklist = window.masterChecklist[m.type] || [];
-            const doneCount = Object.values(room.checks).filter(v => v).length;
-            if (doneCount > 0 && room.status === '未清掃') room.status = '清掃中';
-            if (doneCount === checklist.length && checklist.length > 0 && room.status === '清掃中') room.status = '清掃完了';
             window.saveDailyToCloud(currentDate, rooms);
+            render();
         }
 
         function updateStatus(s) {
             const rooms = dailyData[currentDate];
             rooms.find(r => r.id === selectedRoomId).status = s;
-            window.saveDailyToCloud(currentDate, rooms);
-            selectedRoomId = null;
-            render();
-        }
-
-        function deleteDailyRoom(id) {
-            if (!confirm('この部屋の稼働を中止しますか？')) return;
-            const rooms = dailyData[currentDate].filter(r => r.id !== id);
             window.saveDailyToCloud(currentDate, rooms);
             selectedRoomId = null;
             render();
