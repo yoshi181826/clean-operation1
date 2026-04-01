@@ -11,12 +11,12 @@
         body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; }
         .status-badge { @apply text-[10px] px-2 py-1 rounded-md font-black border; }
         .card-shadow { box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05); }
-        .animate-in { animation: fadeIn 0.3s ease-out; }
-        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-in { animation: fadeIn 0.2s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
         .select-custom { appearance: none; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%239ca3af'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 0.5rem center; background-size: 0.75rem; }
     </style>
 </head>
-<body class="bg-gray-50 text-gray-900 pb-20">
+<body class="bg-gray-50 text-gray-900 pb-24">
 
     <header id="main-header" class="bg-white border-b sticky top-0 z-40 shadow-sm px-6 py-4 flex justify-between items-center">
         <div class="flex items-center space-x-3">
@@ -40,19 +40,21 @@
 
     <main id="app-content" class="max-w-3xl mx-auto p-4"></main>
 
+    <!-- Modal for adding daily tasks -->
     <div id="setup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in">
             <div class="flex justify-between items-center p-5 border-b">
                 <h3 class="font-bold text-lg">稼働部屋の追加</h3>
                 <button onclick="closeModal()" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
             </div>
             <div class="p-5 space-y-5" id="modal-body"></div>
             <div class="p-5 border-t">
-                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg">登録する</button>
+                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform">登録する</button>
             </div>
         </div>
     </div>
 
+    <!-- Firebase Script (Module) -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -69,41 +71,60 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Global functions for the app
-        window.saveToCloud = async (date, data) => {
+        // Global sync functions
+        window.saveDailyToCloud = async (date, data) => {
             try {
                 await setDoc(doc(db, "dailyOperations", date), { rooms: data || [] }, { merge: true });
-            } catch (e) { console.error("Save Error:", e); }
+            } catch (e) { console.error("Daily Save Error:", e); }
         };
 
-        window.loadFromCloud = (date, callback) => {
-            return onSnapshot(doc(db, "dailyOperations", date), (snap) => {
-                callback(snap.exists() ? snap.data().rooms : []);
+        window.saveSettingsToCloud = async (settings) => {
+            try {
+                await setDoc(doc(db, "settings", "master"), settings, { merge: true });
+            } catch (e) { console.error("Settings Save Error:", e); }
+        };
+
+        window.initSync = () => {
+            // Watch Daily Data
+            window.loadDaily = (date, callback) => {
+                return onSnapshot(doc(db, "dailyOperations", date), (snap) => {
+                    callback(snap.exists() ? snap.data().rooms : []);
+                });
+            };
+
+            // Watch Settings Data
+            onSnapshot(doc(db, "settings", "master"), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    masterRooms = data.rooms || [];
+                    masterStaffs = data.staffs || [];
+                    masterChecklist = data.checklist || {};
+                    render();
+                }
             });
         };
 
-        // App Initialization
         window.initApp();
     </script>
 
+    <!-- Application Logic -->
     <script>
         let currentTab = 'tasks', currentDate = new Date().toISOString().split('T')[0];
-        let dailyData = {}, unsubscribe = null, selectedRoomId = null;
+        let dailyData = {}, unsubscribeDaily = null, selectedRoomId = null;
+        let settingSubTab = 'rooms'; // 'rooms', 'staffs', 'checklist'
 
-        const masterRooms = [
-            { id: 'r1', number: '201', type: '和室' }, { id: 'r2', number: '202', type: '洋室' },
-            { id: 'r3', number: '203', type: 'プレミアムスイート' }, { id: 'r4', number: '205', type: 'モダンスイート' }
-        ];
-        const masterStaffs = [{ id: 's1', name: '田中' }, { id: 's2', name: '佐藤' }, { id: 's3', name: '鈴木' }];
-        const masterChecklist = {
-            '和室': [{ id: 'c1', category: '清掃', text: '畳の拭き掃除' }],
-            '洋室': [{ id: 'c3', category: '清掃', text: '掃除機掛け' }]
-        };
+        // Default Data (Will be overridden by Firebase)
+        let masterRooms = [];
+        let masterStaffs = [];
+        let masterChecklist = {};
+        const roomCategories = ['和室', '洋室', 'プレミアムスイート', '貴賓室', 'モダンスイート'];
 
         window.initApp = function() {
-            if (unsubscribe) unsubscribe();
-            if (window.loadFromCloud) {
-                unsubscribe = window.loadFromCloud(currentDate, (data) => {
+            if (unsubscribeDaily) unsubscribeDaily();
+            if (window.initSync) window.initSync();
+            
+            if (window.loadDaily) {
+                unsubscribeDaily = window.loadDaily(currentDate, (data) => {
                     dailyData[currentDate] = data;
                     render();
                 });
@@ -123,78 +144,279 @@
             if (selectedRoomId) return renderDetail(container);
             
             if (currentTab === 'tasks') {
-                let html = `<div class="mb-6 flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm">
-                    <input type="date" value="${currentDate}" onchange="currentDate=this.value; initApp();" class="font-black outline-none">
-                </div><div class="grid gap-4">`;
-                
-                const rooms = dailyData[currentDate] || [];
-                rooms.forEach(room => {
-                    const m = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:''};
-                    html += `<div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 animate-in">
-                        <div class="flex justify-between items-start mb-4">
-                            <div onclick="selectedRoomId='${room.id}'; render()" class="cursor-pointer">
-                                <span class="text-2xl font-black">${m.number}</span>
-                                <span class="text-[10px] text-gray-400 block">${m.type}</span>
-                            </div>
-                            <span class="status-badge ${getStatusColor(room.status)}">${room.status}</span>
-                        </div>
-                        <div class="grid grid-cols-2 gap-2 text-[10px] font-bold">
-                            <div class="bg-blue-50 p-2 rounded-lg text-blue-600">担当: ${masterStaffs.find(s => s.id === room.staffId)?.name || '未定'}</div>
-                            <div class="bg-green-50 p-2 rounded-lg text-green-600">点検: ${masterStaffs.find(s => s.id === room.inspectorId)?.name || '未定'}</div>
-                        </div>
-                    </div>`;
-                });
-                html += `</div><button onclick="openAddModal()" class="w-full mt-6 py-4 border-2 border-dashed border-blue-200 text-blue-500 font-black rounded-2xl">+ 部屋を追加</button>`;
-                container.innerHTML = html;
+                renderTasks(container);
             } else {
-                container.innerHTML = `<div class="text-center py-20 text-gray-400 font-bold">設定画面は準備中です</div>`;
+                renderSettings(container);
             }
         }
 
-        function renderDetail(container) {
-            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
-            const m = masterRooms.find(r => r.id === room.roomId);
-            container.innerHTML = `
-                <div class="animate-in">
-                    <button onclick="selectedRoomId=null; render()" class="mb-4 text-blue-600 font-bold"><i class="fas fa-arrow-left"></i> 戻る</button>
-                    <div class="bg-white p-6 rounded-2xl shadow-lg">
-                        <h2 class="text-3xl font-black mb-1">${m.number}号室</h2>
-                        <p class="text-gray-400 text-sm mb-6">${m.type} / ${room.guestType}</p>
-                        <div class="space-y-4">
-                            ${(masterChecklist[m.type] || []).map(item => `
-                                <div onclick="toggleCheck('${item.id}')" class="flex items-center p-4 bg-gray-50 rounded-xl cursor-pointer">
-                                    <i class="${room.checks[item.id] ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
-                                    <span class="font-bold">${item.text}</span>
-                                </div>
-                            `).join('')}
-                        </div>
-                        <button onclick="updateStatus('点検済')" class="w-full mt-8 bg-green-600 text-white py-4 rounded-xl font-black">点検完了</button>
+        // --- Task List View ---
+        function renderTasks(container) {
+            let html = `
+                <div class="mb-6 flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm animate-in">
+                    <div class="flex items-center space-x-2">
+                        <i class="fas fa-calendar-alt text-blue-500"></i>
+                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; initApp();" class="font-black outline-none bg-transparent">
                     </div>
+                    <div class="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Operation List</div>
+                </div>
+                <div class="grid gap-4">
+            `;
+            
+            const rooms = dailyData[currentDate] || [];
+            if (rooms.length === 0) {
+                html += `<div class="py-20 text-center opacity-30 font-bold">本日の予定はありません</div>`;
+            }
+
+            rooms.forEach(room => {
+                const m = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+                const checks = masterChecklist[m.type] || [];
+                const doneCount = Object.values(room.checks || {}).filter(v => v).length;
+                const progress = checks.length > 0 ? Math.round((doneCount / checks.length) * 100) : 0;
+
+                html += `
+                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 animate-in relative overflow-hidden">
+                    <div class="absolute top-0 left-0 h-1 bg-blue-500 transition-all" style="width: ${progress}%"></div>
+                    <div class="flex justify-between items-start mb-4">
+                        <div onclick="selectedRoomId='${room.id}'; render()" class="cursor-pointer">
+                            <span class="text-2xl font-black text-gray-800">${m.number}</span>
+                            <span class="text-[10px] text-gray-400 font-bold block uppercase">${m.type}</span>
+                        </div>
+                        <div class="flex flex-col items-end space-y-1">
+                            <span class="status-badge ${getStatusColor(room.status)}">${room.status}</span>
+                            <span class="text-[9px] font-black text-gray-300">${room.guestType}</span>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-2 text-[10px] font-bold">
+                        <div class="bg-blue-50/50 p-2 rounded-lg text-blue-600 border border-blue-100 flex items-center">
+                            <i class="fas fa-broom mr-2 opacity-50"></i> ${masterStaffs.find(s => s.id === room.staffId)?.name || '未定'}
+                        </div>
+                        <div class="bg-green-50/50 p-2 rounded-lg text-green-600 border border-green-100 flex items-center">
+                            <i class="fas fa-search mr-2 opacity-50"></i> ${masterStaffs.find(s => s.id === room.inspectorId)?.name || '未定'}
+                        </div>
+                    </div>
+                    <button onclick="deleteDailyRoom('${room.id}')" class="absolute bottom-2 right-2 text-gray-200 hover:text-red-400 p-2 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                 </div>`;
+            });
+
+            html += `</div>
+                <button onclick="openAddModal()" class="w-full mt-8 py-5 border-2 border-dashed border-blue-200 text-blue-500 font-black rounded-2xl hover:bg-blue-50 transition-colors flex items-center justify-center">
+                    <i class="fas fa-plus-circle mr-2"></i> 稼働部屋を追加
+                </button>`;
+            container.innerHTML = html;
+        }
+
+        // --- Settings View ---
+        function renderSettings(container) {
+            let html = `
+                <div class="animate-in">
+                    <div class="flex items-center justify-between mb-8">
+                        <h2 class="text-2xl font-black text-gray-800">マスター設定</h2>
+                        <div class="flex bg-gray-200 p-1 rounded-xl">
+                            <button onclick="settingSubTab='rooms'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
+                            <button onclick="settingSubTab='staffs'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
+                            <button onclick="settingSubTab='checklist'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
+                        </div>
+                    </div>
+            `;
+
+            if (settingSubTab === 'rooms') {
+                html += `<div class="space-y-3">`;
+                masterRooms.forEach((r, i) => {
+                    html += `
+                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border animate-in">
+                            <input type="text" value="${r.number}" onchange="updateMasterRoom(${i}, 'number', this.value)" class="w-20 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="201">
+                            <select onchange="updateMasterRoom(${i}, 'type', this.value)" class="flex-1 p-2 text-sm font-bold bg-gray-50 rounded-lg outline-none border">
+                                ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                            </select>
+                            <button onclick="removeMasterItem('rooms', ${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                        </div>`;
+                });
+                html += `<button onclick="addMasterItem('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button></div>`;
+            } else if (settingSubTab === 'staffs') {
+                html += `<div class="space-y-3">`;
+                masterStaffs.forEach((s, i) => {
+                    html += `
+                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border animate-in">
+                            <input type="text" value="${s.name}" onchange="updateMasterStaff(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
+                            <button onclick="removeMasterItem('staffs', ${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
+                        </div>`;
+                });
+                html += `<button onclick="addMasterItem('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button></div>`;
+            } else if (settingSubTab === 'checklist') {
+                html += `<div class="space-y-6">`;
+                roomCategories.forEach(cat => {
+                    const items = masterChecklist[cat] || [];
+                    html += `
+                        <div class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
+                            <h4 class="font-black text-blue-600 text-xs mb-4 uppercase tracking-widest">${cat}</h4>
+                            <div class="space-y-2">
+                                ${items.map((it, idx) => `
+                                    <div class="flex items-center space-x-2">
+                                        <input type="text" value="${it.text}" onchange="updateMasterCheckItem('${cat}', ${idx}, this.value)" class="flex-1 p-2 text-sm bg-gray-50 rounded-lg outline-none border font-bold" placeholder="項目内容">
+                                        <button onclick="removeMasterCheckItem('${cat}', ${idx})" class="text-red-200"><i class="fas fa-times"></i></button>
+                                    </div>
+                                `).join('')}
+                                <button onclick="addMasterCheckItem('${cat}')" class="text-xs font-bold text-gray-400 mt-2 hover:text-blue-500">+ 項目を追加</button>
+                            </div>
+                        </div>`;
+                });
+                html += `</div>`;
+            }
+
+            html += `
+                <div class="mt-8 p-4 bg-blue-50 rounded-2xl border border-blue-100">
+                    <p class="text-[10px] font-bold text-blue-400 mb-2 uppercase">Sync Status</p>
+                    <button onclick="saveAllSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center">
+                        <i class="fas fa-cloud-upload-alt mr-2"></i> 設定をクラウドに保存
+                    </button>
+                </div>
+            </div>`;
+            container.innerHTML = html;
+        }
+
+        // --- Master Data Logic ---
+        function updateMasterRoom(i, f, v) { masterRooms[i][f] = v; }
+        function updateMasterStaff(i, f, v) { masterStaffs[i][f] = v; }
+        function updateMasterCheckItem(cat, i, v) { masterChecklist[cat][i].text = v; }
+
+        function addMasterItem(type) {
+            if (type === 'rooms') masterRooms.push({ id: 'r'+Date.now(), number: '', type: '和室' });
+            if (type === 'staffs') masterStaffs.push({ id: 's'+Date.now(), name: '' });
+            render();
+        }
+
+        function addMasterCheckItem(cat) {
+            if (!masterChecklist[cat]) masterChecklist[cat] = [];
+            masterChecklist[cat].push({ id: 'c'+Date.now(), text: '', category: '清掃' });
+            render();
+        }
+
+        function removeMasterItem(type, i) {
+            if (type === 'rooms') masterRooms.splice(i, 1);
+            if (type === 'staffs') masterStaffs.splice(i, 1);
+            render();
+        }
+
+        function removeMasterCheckItem(cat, i) {
+            masterChecklist[cat].splice(i, 1);
+            render();
+        }
+
+        async function saveAllSettings() {
+            const btn = event.currentTarget;
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> 保存中...';
+            await window.saveSettingsToCloud({
+                rooms: masterRooms,
+                staffs: masterStaffs,
+                checklist: masterChecklist
+            });
+            btn.innerHTML = '<i class="fas fa-check mr-2"></i> 保存完了';
+            setTimeout(() => render(), 1500);
+        }
+
+        // --- Daily Operation Logic ---
+        function deleteDailyRoom(id) {
+            if (!confirm('この部屋の稼働予定を削除しますか？')) return;
+            const rooms = dailyData[currentDate].filter(r => r.id !== id);
+            window.saveDailyToCloud(currentDate, rooms);
         }
 
         function toggleCheck(cid) {
             const rooms = dailyData[currentDate];
             const room = rooms.find(r => r.id === selectedRoomId);
             room.checks[cid] = !room.checks[cid];
-            window.saveToCloud(currentDate, rooms);
+            
+            // Auto update status if all checked
+            const m = masterRooms.find(r => r.id === room.roomId);
+            const checklist = masterChecklist[m.type] || [];
+            const doneCount = Object.values(room.checks).filter(v => v).length;
+            
+            if (doneCount > 0 && room.status === '未清掃') room.status = '清掃中';
+            if (doneCount === checklist.length && checklist.length > 0 && room.status === '清掃中') room.status = '清掃完了';
+
+            window.saveDailyToCloud(currentDate, rooms);
         }
 
         function updateStatus(s) {
             const rooms = dailyData[currentDate];
             rooms.find(r => r.id === selectedRoomId).status = s;
-            window.saveToCloud(currentDate, rooms);
+            window.saveDailyToCloud(currentDate, rooms);
             selectedRoomId = null;
         }
 
+        // --- Detail View ---
+        function renderDetail(container) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            if (!room) { selectedRoomId = null; return render(); }
+            const m = masterRooms.find(r => r.id === room.roomId) || {number:'?', type: '?'};
+            const checklist = masterChecklist[m.type] || [];
+
+            container.innerHTML = `
+                <div class="animate-in bg-white p-6 rounded-3xl shadow-xl border border-gray-100">
+                    <button onclick="selectedRoomId=null; render()" class="mb-6 text-gray-400 font-bold flex items-center">
+                        <i class="fas fa-chevron-left mr-2"></i> 一覧に戻る
+                    </button>
+                    
+                    <div class="flex justify-between items-end mb-8">
+                        <div>
+                            <h2 class="text-4xl font-black text-gray-800">${m.number}</h2>
+                            <p class="text-sm font-bold text-blue-500 uppercase tracking-tighter">${m.type} / ${room.guestType}</p>
+                        </div>
+                        <div class="status-badge ${getStatusColor(room.status)} py-2 px-4 text-xs">${room.status}</div>
+                    </div>
+
+                    <div class="space-y-3 mb-10">
+                        <p class="text-[10px] font-black text-gray-400 uppercase ml-1">Checklist</p>
+                        ${checklist.length > 0 ? checklist.map(item => `
+                            <div onclick="toggleCheck('${item.id}')" class="flex items-center p-4 bg-gray-50 rounded-2xl cursor-pointer active:scale-95 transition-all">
+                                <i class="${room.checks[item.id] ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
+                                <span class="font-bold text-gray-700">${item.text}</span>
+                            </div>
+                        `).join('') : '<div class="text-center py-10 text-gray-300 font-bold italic">項目が設定されていません</div>'}
+                    </div>
+
+                    <div class="flex gap-3">
+                        <button onclick="updateStatus('清掃完了')" class="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-blue-100 active:scale-95 transition-transform">清掃完了</button>
+                        <button onclick="updateStatus('点検済')" class="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black shadow-lg shadow-green-100 active:scale-95 transition-transform">点検完了</button>
+                    </div>
+                </div>`;
+        }
+
         function openAddModal() {
+            if (masterRooms.length === 0) return alert('先に設定画面から客室マスターを登録してください');
             const body = document.getElementById('modal-body');
-            body.innerHTML = `<select id="f-room" class="w-full p-3 border rounded-xl font-bold">
-                ${masterRooms.map(r => `<option value="${r.id}">${r.number}</option>`).join('')}
-            </select>
-            <select id="f-staff" class="w-full p-3 border rounded-xl font-bold">
-                ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
-            </select>`;
+            body.innerHTML = `
+                <div>
+                    <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">Room</label>
+                    <select id="f-room" class="w-full p-4 border-2 rounded-2xl font-black outline-none bg-gray-50">
+                        ${masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">Staff</label>
+                        <select id="f-staff" class="w-full p-4 border-2 rounded-2xl font-black outline-none bg-gray-50">
+                            <option value="">未指定</option>
+                            ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">Inspector</label>
+                        <select id="f-inspector" class="w-full p-4 border-2 rounded-2xl font-black outline-none bg-gray-50">
+                            <option value="">未指定</option>
+                            ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>
+                <div>
+                    <label class="text-[10px] font-black text-gray-400 ml-1 uppercase">Type</label>
+                    <select id="f-type" class="w-full p-4 border-2 rounded-2xl font-black outline-none bg-gray-50">
+                        <option>通常清掃</option>
+                        <option>連泊清掃</option>
+                        <option>VIP対応</option>
+                    </select>
+                </div>`;
             document.getElementById('setup-modal').classList.remove('hidden');
             document.getElementById('modal-save-btn').onclick = () => {
                 const rooms = dailyData[currentDate] || [];
@@ -202,16 +424,23 @@
                     id: 'd' + Date.now(),
                     roomId: document.getElementById('f-room').value,
                     staffId: document.getElementById('f-staff').value,
-                    status: '未清掃', checks: {}, guestType: '通常清掃'
+                    inspectorId: document.getElementById('f-inspector').value,
+                    guestType: document.getElementById('f-type').value,
+                    status: '未清掃', checks: {}
                 });
-                window.saveToCloud(currentDate, rooms);
+                window.saveDailyToCloud(currentDate, rooms);
                 closeModal();
             };
         }
 
         function closeModal() { document.getElementById('setup-modal').classList.add('hidden'); }
         function getStatusColor(s) {
-            return s === '点検済' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-600';
+            switch(s) {
+                case '点検済': return 'bg-green-100 text-green-700 border-green-200';
+                case '清掃完了': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                case '清掃中': return 'bg-blue-100 text-blue-700 border-blue-200';
+                default: return 'bg-gray-100 text-gray-600 border-gray-200';
+            }
         }
     </script>
 </body>
