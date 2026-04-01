@@ -8,20 +8,29 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
-        body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
+        body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; touch-action: pan-y; }
         .status-badge { @apply text-[10px] px-2 py-1 rounded-md font-black border; }
         .animate-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        
         /* タップ領域の確保 */
         button, select, input { min-height: 44px; }
         
-        /* Drag & Drop Styles */
-        .dragging { opacity: 0.4; transform: scale(0.98); background-color: #f3f4f6 !important; }
-        .drag-over { border-top: 2px solid #3b82f6; }
+        /* Drag & Drop Visuals */
+        .dragging { opacity: 0.5; background-color: #ebf5ff !important; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1); z-index: 50; }
+        .drag-over { border-top: 3px solid #3b82f6; }
         
-        /* スマホ用：ドラッグハンドル以外でのドラッグを無効化 */
-        .drag-handle { cursor: grab; touch-action: none; }
-        .drag-handle:active { cursor: grabbing; }
+        /* モバイルでのドラッグハンドル */
+        .drag-handle { 
+            touch-action: none; /* ブラウザのスクロールを抑制してドラッグに集中 */
+            cursor: grab;
+        }
+        
+        /* 削除ボタンの押しやすさ */
+        .btn-delete {
+            touch-action: manipulation;
+            -webkit-appearance: none;
+        }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 pb-24">
@@ -219,7 +228,7 @@
                         <select onchange="window.masterRooms[${i}].type=this.value" class="flex-1 p-3 text-sm font-bold bg-gray-50 rounded-xl border-none">
                             ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
                         </select>
-                        <button onclick="window.masterRooms.splice(${i}, 1); render()" class="text-red-300 p-3"><i class="fas fa-trash-alt"></i></button>
+                        <button onclick="window.masterRooms.splice(${i}, 1); render()" class="text-red-300 p-3 btn-delete"><i class="fas fa-trash-alt"></i></button>
                     </div>`;
                 });
                 html += `<button onclick="window.masterRooms.push({id:'r'+Date.now(), number:'', type:'和室'}); render()" class="w-full py-4 border-2 border-dashed rounded-2xl text-gray-400 font-bold">+ 客室追加</button></div>`;
@@ -228,7 +237,7 @@
                 window.masterStaffs.forEach((s, i) => {
                     html += `<div class="flex items-center space-x-3 bg-white p-4 rounded-2xl border shadow-sm animate-in">
                         <input type="text" value="${s.name}" onchange="window.masterStaffs[${i}].name=this.value" class="flex-1 p-3 font-black bg-gray-50 rounded-xl outline-none" placeholder="スタッフ名">
-                        <button onclick="window.masterStaffs.splice(${i}, 1); render()" class="text-red-300 p-3"><i class="fas fa-trash-alt"></i></button>
+                        <button onclick="window.masterStaffs.splice(${i}, 1); render()" class="text-red-300 p-3 btn-delete"><i class="fas fa-trash-alt"></i></button>
                     </div>`;
                 });
                 html += `<button onclick="window.masterStaffs.push({id:'s'+Date.now(), name:''}); render()" class="w-full py-4 border-2 border-dashed rounded-2xl text-gray-400 font-bold">+ スタッフ登録</button></div>`;
@@ -237,38 +246,46 @@
                 roomCategories.forEach(cat => {
                     const items = window.masterChecklist[cat] || [];
                     html += `
-                        <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
-                            <h4 class="font-black text-blue-600 text-[10px] mb-5 uppercase tracking-widest flex items-center">
+                        <div class="bg-white p-5 rounded-3xl border border-gray-100 shadow-sm">
+                            <h4 class="font-black text-blue-600 text-[10px] mb-4 uppercase tracking-widest flex items-center">
                                 <i class="fas fa-list mr-2 opacity-50"></i>${cat}
                             </h4>
-                            <div class="space-y-2">
+                            <div class="space-y-2" id="list-${cat}">
                                 ${items.map((it, idx) => `
-                                    <div draggable="true" 
-                                         ondragstart="handleDragStart(event, '${cat}', ${idx})"
-                                         ondragover="handleDragOver(event)"
-                                         ondragleave="handleDragLeave(event)"
-                                         ondragend="handleDragEnd(event)"
-                                         ondrop="handleDrop(event, '${cat}', ${idx})"
-                                         class="flex items-center space-x-2 bg-gray-50 rounded-xl border border-transparent transition-all">
-                                        <!-- ハンドル部分のみドラッグ可能に見せる -->
-                                        <div class="p-4 text-gray-300 drag-handle">
-                                            <i class="fas fa-grip-lines"></i>
+                                    <div 
+                                         data-id="${it.id}"
+                                         data-index="${idx}"
+                                         data-category="${cat}"
+                                         class="item-row flex items-center space-x-2 bg-gray-50 rounded-xl border border-transparent transition-all relative">
+                                        
+                                        <!-- ハンドル (PCドラッグとスマホタッチの両方に対応) -->
+                                        <div class="p-4 text-gray-300 drag-handle" 
+                                             draggable="true"
+                                             ondragstart="handleDragStart(event, '${cat}', ${idx})"
+                                             ondragover="handleDragOver(event)"
+                                             ondrop="handleDrop(event, '${cat}', ${idx})"
+                                             ontouchstart="handleTouchStart(event)"
+                                             ontouchmove="handleTouchMove(event)"
+                                             ontouchend="handleTouchEnd(event)">
+                                            <i class="fas fa-grip-lines pointer-events-none"></i>
                                         </div>
+
                                         <input type="text" value="${it.text}" 
-                                            onchange="updateChecklistItemText('${cat}', ${idx}, this.value)" 
-                                            class="flex-1 py-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
-                                        <!-- 削除ボタンを明確に分離 -->
+                                            oninput="updateChecklistItemText('${cat}', ${idx}, this.value)" 
+                                            class="flex-1 py-3 text-sm bg-transparent outline-none font-bold" placeholder="項目を入力...">
+                                        
+                                        <!-- 削除ボタン (タップイベントを確実に拾う) -->
                                         <button type="button" 
-                                            onclick="deleteChecklistItem('${cat}', ${idx})" 
-                                            class="text-red-400 w-12 h-12 flex items-center justify-center hover:bg-red-50 rounded-xl transition-colors">
-                                            <i class="fas fa-times-circle text-lg"></i>
+                                            onclick="event.preventDefault(); event.stopPropagation(); deleteChecklistItem('${cat}', ${idx})" 
+                                            class="text-red-400 w-12 h-12 flex items-center justify-center hover:bg-red-50 rounded-xl transition-colors btn-delete">
+                                            <i class="fas fa-times-circle text-lg pointer-events-none"></i>
                                         </button>
                                     </div>
                                 `).join('')}
                                 <button type="button" 
                                     onclick="addChecklistItem('${cat}')" 
-                                    class="w-full py-3 text-xs font-black text-blue-500 mt-2 bg-blue-50/50 rounded-xl border-2 border-dashed border-blue-100">
-                                    + ${cat}に項目を追加
+                                    class="w-full py-4 text-xs font-black text-blue-500 mt-2 bg-blue-50/50 rounded-xl border-2 border-dashed border-blue-100 active:scale-95 transition-transform">
+                                    + 項目を追加
                                 </button>
                             </div>
                         </div>`;
@@ -294,7 +311,6 @@
         }
 
         function deleteChecklistItem(cat, idx) {
-            // イベント停止は不要（バブリングしてもsplice->renderなので問題なし）
             if (window.masterChecklist[cat]) {
                 window.masterChecklist[cat].splice(idx, 1);
                 render();
@@ -307,52 +323,81 @@
             render();
         }
 
-        // --- Drag and Drop Handlers ---
+        // --- Drag and Drop (PC) ---
         let draggedIndex = null;
         let draggedCategory = null;
 
         function handleDragStart(e, cat, idx) {
-            // グリップ部分または背景からのみ開始（inputやbuttonからは開始させない）
-            if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON' || e.target.closest('button')) {
-                e.preventDefault();
-                return;
-            }
             draggedIndex = idx;
             draggedCategory = cat;
-            e.target.classList.add('dragging');
+            e.target.closest('.item-row').classList.add('dragging');
         }
 
         function handleDragOver(e) {
             e.preventDefault(); 
-            e.dataTransfer.dropEffect = 'move';
-            const target = e.currentTarget;
-            if (target && !target.classList.contains('dragging')) {
-                target.classList.add('drag-over');
-            }
-        }
-
-        function handleDragLeave(e) {
-            e.currentTarget.classList.remove('drag-over');
-        }
-
-        function handleDragEnd(e) {
-            e.target.classList.remove('dragging');
-            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            const targetRow = e.target.closest('.item-row');
+            if (targetRow) targetRow.classList.add('drag-over');
         }
 
         function handleDrop(e, cat, idx) {
             e.preventDefault();
-            e.currentTarget.classList.remove('drag-over');
-            
             if (draggedCategory !== cat || draggedIndex === null || draggedIndex === idx) return;
-
             const list = window.masterChecklist[cat];
             const [movedItem] = list.splice(draggedIndex, 1);
             list.splice(idx, 0, movedItem);
-            
-            draggedIndex = null;
-            draggedCategory = null;
             render();
+        }
+
+        // --- Custom Touch Drag (Mobile) ---
+        let touchTarget = null;
+        let touchY = 0;
+        let currentItemRow = null;
+
+        function handleTouchStart(e) {
+            currentItemRow = e.target.closest('.item-row');
+            if (!currentItemRow) return;
+            touchY = e.touches[0].clientY;
+            currentItemRow.classList.add('dragging');
+        }
+
+        function handleTouchMove(e) {
+            if (!currentItemRow) return;
+            const moveY = e.touches[0].clientY;
+            const diff = moveY - touchY;
+            
+            // 下にある要素を探す
+            const elements = document.elementsFromPoint(e.touches[0].clientX, e.touches[0].clientY);
+            const targetRow = elements.find(el => el.classList.contains('item-row') && el !== currentItemRow);
+            
+            // 視覚的なフィードバック
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            if (targetRow) targetRow.classList.add('drag-over');
+            
+            // 指が動いている間、スクロールを止める
+            e.preventDefault();
+        }
+
+        function handleTouchEnd(e) {
+            if (!currentItemRow) return;
+            
+            const cat = currentItemRow.dataset.category;
+            const fromIdx = parseInt(currentItemRow.dataset.index);
+            
+            const elements = document.elementsFromPoint(e.changedTouches[0].clientX, e.changedTouches[0].clientY);
+            const targetRow = elements.find(el => el.classList.contains('item-row') && el !== currentItemRow);
+            
+            if (targetRow && targetRow.dataset.category === cat) {
+                const toIdx = parseInt(targetRow.dataset.index);
+                const list = window.masterChecklist[cat];
+                const [movedItem] = list.splice(fromIdx, 1);
+                list.splice(toIdx, 0, movedItem);
+                render();
+            } else {
+                currentItemRow.classList.remove('dragging');
+            }
+            
+            document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
+            currentItemRow = null;
         }
 
         async function saveAllSettings() {
