@@ -2,16 +2,22 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TAIANKAKU Operation System</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;700;900&display=swap');
-        body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { font-family: 'Noto Sans JP', sans-serif; -webkit-tap-highlight-color: transparent; overflow-x: hidden; }
         .status-badge { @apply text-[10px] px-2 py-1 rounded-md font-black border; }
         .animate-in { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; transform: translateY(5px); } to { opacity: 1; transform: translateY(0); } }
+        /* タップ領域の確保 */
+        button, select, input { min-height: 44px; }
+        
+        /* Drag & Drop Styles */
+        .dragging { opacity: 0.5; transform: scale(0.98); }
+        .drag-over { border-top: 2px solid #3b82f6; }
     </style>
 </head>
 <body class="bg-gray-50 text-gray-900 pb-24">
@@ -19,43 +25,44 @@
     <header id="main-header" class="bg-white border-b sticky top-0 z-40 shadow-sm px-6 py-4 flex justify-between items-center">
         <div class="flex items-center space-x-3">
             <div class="bg-blue-600 p-2 rounded-xl shadow-lg shadow-blue-100">
-                <i class="fas fa-home text-white"></i>
+                <i class="fas fa-hotel text-white"></i>
             </div>
             <div>
                 <h1 class="text-sm font-black leading-none uppercase">TAIANKAKU</h1>
-                <p class="text-[9px] font-bold text-gray-400 tracking-tighter uppercase mt-0.5">Hotel Operations</p>
+                <p class="text-[9px] font-bold text-gray-400 tracking-tighter uppercase mt-0.5">Production Mode</p>
             </div>
         </div>
         <div class="flex bg-gray-100 p-1 rounded-2xl">
-            <button onclick="switchTab('tasks')" id="tab-btn-tasks" class="p-3 rounded-xl transition-all bg-white shadow-sm text-blue-600">
-                <i class="fas fa-list-ul text-lg"></i>
+            <button onclick="switchTab('tasks')" id="tab-btn-tasks" class="px-5 py-2 rounded-xl transition-all bg-white shadow-sm text-blue-600 font-bold">
+                <i class="fas fa-list-ul mr-2"></i>タスク
             </button>
-            <button onclick="switchTab('settings')" id="tab-btn-settings" class="p-3 rounded-xl transition-all text-gray-400">
-                <i class="fas fa-cog text-lg"></i>
+            <button onclick="switchTab('settings')" id="tab-btn-settings" class="px-5 py-2 rounded-xl transition-all text-gray-400 font-bold">
+                <i class="fas fa-cog mr-2"></i>設定
             </button>
         </div>
     </header>
 
     <main id="app-content" class="max-w-3xl mx-auto p-4">
-        <!-- 初期表示のローディング -->
-        <div class="text-center py-20 text-gray-400 font-bold animate-pulse">読み込み中...</div>
+        <div id="loading-spinner" class="text-center py-20 text-gray-400 font-bold animate-pulse">
+            <i class="fas fa-sync fa-spin mr-2"></i>クラウド同期中...
+        </div>
     </main>
 
-    <!-- Modal for adding daily tasks -->
-    <div id="setup-modal" class="fixed inset-0 bg-black/50 z-50 hidden flex items-center justify-center p-4">
-        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in">
-            <div class="flex justify-between items-center p-5 border-b">
-                <h3 class="font-bold text-lg">稼働部屋の追加</h3>
-                <button onclick="closeModal()" class="text-gray-400"><i class="fas fa-times text-xl"></i></button>
+    <!-- モーダル（共通） -->
+    <div id="setup-modal" class="fixed inset-0 bg-black/60 z-50 hidden flex items-center justify-center p-4 backdrop-blur-sm">
+        <div class="bg-white rounded-3xl shadow-2xl w-full max-w-md flex flex-col overflow-hidden animate-in">
+            <div class="flex justify-between items-center p-6 border-b">
+                <h3 class="font-bold text-lg" id="modal-title">稼働部屋の追加</h3>
+                <button onclick="closeModal()" class="text-gray-400 p-2"><i class="fas fa-times text-xl"></i></button>
             </div>
-            <div class="p-5 space-y-5" id="modal-body"></div>
-            <div class="p-5 border-t">
-                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform">登録する</button>
+            <div class="p-6 space-y-5" id="modal-body"></div>
+            <div class="p-6 border-t bg-gray-50">
+                <button id="modal-save-btn" class="w-full bg-blue-600 text-white font-black py-4 rounded-2xl shadow-lg active:scale-95 transition-transform">決定</button>
             </div>
         </div>
     </div>
 
-    <!-- Firebase Script (Module) -->
+    <!-- Firebase SDK -->
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
         import { getFirestore, doc, onSnapshot, setDoc } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js";
@@ -72,55 +79,43 @@
         const app = initializeApp(firebaseConfig);
         const db = getFirestore(app);
 
-        // Global sync functions
         window.saveDailyToCloud = async (date, data) => {
-            try {
-                await setDoc(doc(db, "dailyOperations", date), { rooms: data || [] }, { merge: true });
-            } catch (e) { console.error("Daily Save Error:", e); }
+            await setDoc(doc(db, "dailyOperations", date), { rooms: data || [] }, { merge: true });
         };
 
         window.saveSettingsToCloud = async (settings) => {
-            try {
-                await setDoc(doc(db, "settings", "master"), settings, { merge: true });
-            } catch (e) { console.error("Settings Save Error:", e); }
+            await setDoc(doc(db, "settings", "master"), settings, { merge: true });
         };
 
         window.initSync = () => {
-            // Watch Daily Data
+            onSnapshot(doc(db, "settings", "master"), (snap) => {
+                if (snap.exists()) {
+                    const data = snap.data();
+                    window.masterRooms = data.rooms || [];
+                    window.masterStaffs = data.staffs || [];
+                    window.masterChecklist = data.checklist || {};
+                }
+                window.render();
+            });
+
             window.loadDaily = (date, callback) => {
                 return onSnapshot(doc(db, "dailyOperations", date), (snap) => {
                     callback(snap.exists() ? snap.data().rooms : []);
                 });
             };
-
-            // Watch Settings Data
-            onSnapshot(doc(db, "settings", "master"), (snap) => {
-                if (snap.exists()) {
-                    const data = snap.data();
-                    masterRooms = data.rooms || [];
-                    masterStaffs = data.staffs || [];
-                    masterChecklist = data.checklist || {};
-                }
-                // データがあってもなくても描画を更新
-                render();
-            }, (error) => {
-                console.error("Settings Sync Error:", error);
-                render(); // エラー時も「準備中」にならないよう描画
-            });
         };
 
         window.initApp();
     </script>
 
-    <!-- Application Logic -->
     <script>
         let currentTab = 'tasks', currentDate = new Date().toISOString().split('T')[0];
         let dailyData = {}, unsubscribeDaily = null, selectedRoomId = null;
-        let settingSubTab = 'rooms'; 
+        let settingSubTab = 'rooms';
 
-        let masterRooms = [];
-        let masterStaffs = [];
-        let masterChecklist = {};
+        window.masterRooms = [];
+        window.masterStaffs = [];
+        window.masterChecklist = {};
         const roomCategories = ['和室', '洋室', 'プレミアムスイート', '貴賓室', 'モダンスイート'];
 
         window.initApp = function() {
@@ -139,123 +134,133 @@
             currentTab = tab;
             selectedRoomId = null;
             render();
-            document.getElementById('tab-btn-tasks').className = tab === 'tasks' ? 'p-3 rounded-xl bg-white shadow-sm text-blue-600' : 'p-3 text-gray-400';
-            document.getElementById('tab-btn-settings').className = tab === 'settings' ? 'p-3 rounded-xl bg-white shadow-sm text-blue-600' : 'p-3 text-gray-400';
+            const isTasks = tab === 'tasks';
+            document.getElementById('tab-btn-tasks').className = `px-5 py-2 rounded-xl transition-all ${isTasks ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'} font-bold`;
+            document.getElementById('tab-btn-settings').className = `px-5 py-2 rounded-xl transition-all ${!isTasks ? 'bg-white shadow-sm text-blue-600' : 'text-gray-400'} font-bold`;
         }
 
         function render() {
             const container = document.getElementById('app-content');
             if (!container) return;
-            
             if (selectedRoomId) return renderDetail(container);
-            
-            if (currentTab === 'tasks') {
-                renderTasks(container);
-            } else {
-                renderSettings(container);
-            }
+            if (currentTab === 'tasks') renderTasks(container);
+            else renderSettings(container);
         }
 
-        // --- Task List View ---
         function renderTasks(container) {
+            const rooms = dailyData[currentDate] || [];
             let html = `
-                <div class="mb-6 flex justify-between items-center bg-white p-3 rounded-xl border shadow-sm animate-in">
-                    <div class="flex items-center space-x-2">
-                        <i class="fas fa-calendar-alt text-blue-500"></i>
-                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; initApp();" class="font-black outline-none bg-transparent">
+                <div class="mb-6 flex justify-between items-center bg-white p-3 rounded-2xl border shadow-sm animate-in">
+                    <div class="flex items-center space-x-3 px-2">
+                        <i class="fas fa-calendar-day text-blue-500"></i>
+                        <input type="date" value="${currentDate}" onchange="currentDate=this.value; initApp();" class="font-black outline-none bg-transparent text-lg">
                     </div>
                 </div>
                 <div class="grid gap-4">
             `;
             
-            const rooms = dailyData[currentDate] || [];
             if (rooms.length === 0) {
-                html += `<div class="py-20 text-center opacity-30 font-bold">本日の予定はありません</div>`;
+                html += `<div class="py-20 text-center flex flex-col items-center justify-center bg-white rounded-3xl border-2 border-dashed border-gray-100">
+                    <p class="text-gray-400 font-bold">本日の清掃予定はありません</p>
+                </div>`;
             }
 
             rooms.forEach(room => {
-                const m = masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
-                const checks = masterChecklist[m.type] || [];
+                const m = window.masterRooms.find(r => r.id === room.roomId) || {number:'?', type:'?'};
+                const checks = window.masterChecklist[m.type] || [];
                 const doneCount = Object.values(room.checks || {}).filter(v => v).length;
                 const progress = checks.length > 0 ? Math.round((doneCount / checks.length) * 100) : 0;
 
                 html += `
-                <div class="bg-white p-5 rounded-2xl shadow-sm border border-gray-100 animate-in relative overflow-hidden">
-                    <div class="absolute top-0 left-0 h-1 bg-blue-500" style="width: ${progress}%"></div>
-                    <div class="flex justify-between items-start mb-4">
-                        <div onclick="selectedRoomId='${room.id}'; render()" class="cursor-pointer">
-                            <span class="text-2xl font-black text-gray-800">${m.number}</span>
-                            <span class="text-[10px] text-gray-400 font-bold block uppercase">${m.type}</span>
+                <div class="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 animate-in relative overflow-hidden active:bg-gray-50 transition-colors" onclick="selectedRoomId='${room.id}'; render()">
+                    <!-- 進捗ゲージを表示 -->
+                    <div class="absolute top-0 left-0 h-1.5 bg-blue-500 transition-all duration-500 z-10" style="width: ${progress}%"></div>
+                    
+                    <div class="flex justify-between items-start pt-2">
+                        <div>
+                            <span class="text-3xl font-black text-gray-800">${m.number}</span>
+                            <span class="text-[10px] text-blue-500 font-black block uppercase tracking-tighter">${m.type}</span>
                         </div>
-                        <span class="status-badge ${getStatusColor(room.status)}">${room.status}</span>
+                        <div class="flex flex-col items-end">
+                            <span class="status-badge ${getStatusColor(room.status)} mb-2">${room.status}</span>
+                            <span class="text-[10px] font-bold text-gray-300 italic">${progress}% 完了</span>
+                        </div>
                     </div>
-                    <div class="grid grid-cols-2 gap-2 text-[10px] font-bold">
-                        <div class="bg-blue-50 p-2 rounded-lg text-blue-600 border border-blue-100 italic">担当: ${masterStaffs.find(s => s.id === room.staffId)?.name || '未定'}</div>
-                        <div class="bg-green-50 p-2 rounded-lg text-green-600 border border-green-100 italic">点検: ${masterStaffs.find(s => s.id === room.inspectorId)?.name || '未定'}</div>
+                    <div class="grid grid-cols-2 gap-3 mt-4">
+                        <div class="bg-gray-50 p-2.5 rounded-xl text-[11px] font-bold text-gray-500 flex items-center">
+                            <i class="fas fa-user-edit mr-2 text-blue-300"></i> ${window.masterStaffs.find(s => s.id === room.staffId)?.name || '未定'}
+                        </div>
+                        <div class="bg-gray-50 p-2.5 rounded-xl text-[11px] font-bold text-gray-500 flex items-center">
+                            <i class="fas fa-user-check mr-2 text-green-300"></i> ${window.masterStaffs.find(s => s.id === room.inspectorId)?.name || '未定'}
+                        </div>
                     </div>
-                    <button onclick="deleteDailyRoom('${room.id}')" class="absolute bottom-2 right-2 text-gray-200 hover:text-red-400 p-2 transition-colors"><i class="fas fa-trash-alt text-xs"></i></button>
                 </div>`;
             });
 
             html += `</div>
-                <button onclick="openAddModal()" class="w-full mt-8 py-5 border-2 border-dashed border-blue-200 text-blue-500 font-black rounded-2xl flex items-center justify-center">
-                    <i class="fas fa-plus-circle mr-2"></i> 稼働部屋を追加
+                <button onclick="openAddModal()" class="w-full mt-8 py-6 border-2 border-dashed border-blue-200 text-blue-500 font-black rounded-3xl bg-blue-50/30 hover:bg-blue-50 flex items-center justify-center">
+                    <i class="fas fa-plus-circle text-xl mr-2"></i> 稼働部屋を追加
                 </button>`;
             container.innerHTML = html;
         }
 
-        // --- Settings View (HERE IS THE FIX) ---
         function renderSettings(container) {
             let html = `
-                <div class="animate-in">
-                    <div class="flex items-center justify-between mb-8">
-                        <h2 class="text-2xl font-black text-gray-800">マスター設定</h2>
-                        <div class="flex bg-gray-200 p-1 rounded-xl">
-                            <button onclick="settingSubTab='rooms'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
-                            <button onclick="settingSubTab='staffs'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
-                            <button onclick="settingSubTab='checklist'; render()" class="px-4 py-2 text-xs font-black rounded-lg ${settingSubTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
+                <div class="animate-in pb-10">
+                    <div class="flex flex-col space-y-6 mb-8">
+                        <h2 class="text-3xl font-black text-gray-800">マスター設定</h2>
+                        <div class="flex bg-gray-200 p-1 rounded-2xl">
+                            <button onclick="settingSubTab='rooms'; render()" class="flex-1 py-3 text-sm font-black rounded-xl transition-all ${settingSubTab === 'rooms' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">客室</button>
+                            <button onclick="settingSubTab='staffs'; render()" class="flex-1 py-3 text-sm font-black rounded-xl transition-all ${settingSubTab === 'staffs' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">スタッフ</button>
+                            <button onclick="settingSubTab='checklist'; render()" class="flex-1 py-3 text-sm font-black rounded-xl transition-all ${settingSubTab === 'checklist' ? 'bg-white shadow text-blue-600' : 'text-gray-500'}">項目</button>
                         </div>
                     </div>
             `;
 
             if (settingSubTab === 'rooms') {
                 html += `<div class="space-y-3">`;
-                masterRooms.forEach((r, i) => {
-                    html += `
-                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border animate-in">
-                            <input type="text" value="${r.number}" onchange="updateMasterRoom(${i}, 'number', this.value)" class="w-20 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="201">
-                            <select onchange="updateMasterRoom(${i}, 'type', this.value)" class="flex-1 p-2 text-sm font-bold bg-gray-50 rounded-lg outline-none border">
-                                ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
-                            </select>
-                            <button onclick="removeMasterItem('rooms', ${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
-                        </div>`;
+                window.masterRooms.forEach((r, i) => {
+                    html += `<div class="flex items-center space-x-3 bg-white p-4 rounded-2xl border shadow-sm animate-in">
+                        <input type="text" value="${r.number}" onchange="window.masterRooms[${i}].number=this.value" class="w-24 p-3 font-black bg-gray-50 rounded-xl outline-none" placeholder="201">
+                        <select onchange="window.masterRooms[${i}].type=this.value" class="flex-1 p-3 text-sm font-bold bg-gray-50 rounded-xl border-none">
+                            ${roomCategories.map(cat => `<option value="${cat}" ${r.type === cat ? 'selected' : ''}>${cat}</option>`).join('')}
+                        </select>
+                        <button onclick="window.masterRooms.splice(${i}, 1); render()" class="text-red-300 p-3"><i class="fas fa-trash-alt"></i></button>
+                    </div>`;
                 });
-                html += `<button onclick="addMasterItem('rooms')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ 客室を追加</button></div>`;
+                html += `<button onclick="window.masterRooms.push({id:'r'+Date.now(), number:'', type:'和室'}); render()" class="w-full py-4 border-2 border-dashed rounded-2xl text-gray-400 font-bold">+ 客室追加</button></div>`;
             } else if (settingSubTab === 'staffs') {
                 html += `<div class="space-y-3">`;
-                masterStaffs.forEach((s, i) => {
-                    html += `
-                        <div class="flex items-center space-x-2 bg-white p-3 rounded-xl border animate-in">
-                            <input type="text" value="${s.name}" onchange="updateMasterStaff(${i}, 'name', this.value)" class="flex-1 p-2 font-bold bg-gray-50 rounded-lg outline-none" placeholder="名前">
-                            <button onclick="removeMasterItem('staffs', ${i})" class="text-red-300 p-2"><i class="fas fa-trash"></i></button>
-                        </div>`;
+                window.masterStaffs.forEach((s, i) => {
+                    html += `<div class="flex items-center space-x-3 bg-white p-4 rounded-2xl border shadow-sm animate-in">
+                        <input type="text" value="${s.name}" onchange="window.masterStaffs[${i}].name=this.value" class="flex-1 p-3 font-black bg-gray-50 rounded-xl outline-none" placeholder="スタッフ名">
+                        <button onclick="window.masterStaffs.splice(${i}, 1); render()" class="text-red-300 p-3"><i class="fas fa-trash-alt"></i></button>
+                    </div>`;
                 });
-                html += `<button onclick="addMasterItem('staffs')" class="w-full py-3 border-2 border-dashed rounded-xl text-gray-400 font-bold">+ スタッフを追加</button></div>`;
+                html += `<button onclick="window.masterStaffs.push({id:'s'+Date.now(), name:''}); render()" class="w-full py-4 border-2 border-dashed rounded-2xl text-gray-400 font-bold">+ スタッフ登録</button></div>`;
             } else if (settingSubTab === 'checklist') {
                 html += `<div class="space-y-6">`;
                 roomCategories.forEach(cat => {
-                    const items = masterChecklist[cat] || [];
+                    const items = window.masterChecklist[cat] || [];
                     html += `
-                        <div class="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm">
-                            <h4 class="font-black text-blue-600 text-xs mb-4 uppercase tracking-widest">${cat}</h4>
-                            <div class="space-y-2">
+                        <div class="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm">
+                            <h4 class="font-black text-blue-600 text-xs mb-5 uppercase tracking-widest flex items-center">
+                                <i class="fas fa-list mr-2 opacity-50"></i>${cat} (ドラッグで並び替え可)
+                            </h4>
+                            <div class="space-y-2 drag-container" data-category="${cat}">
                                 ${items.map((it, idx) => `
-                                    <div class="flex items-center space-x-2">
-                                        <input type="text" value="${it.text}" onchange="updateMasterCheckItem('${cat}', ${idx}, this.value)" class="flex-1 p-2 text-sm bg-gray-50 rounded-lg outline-none border font-bold">
-                                        <button onclick="removeMasterCheckItem('${cat}', ${idx})" class="text-red-200"><i class="fas fa-times"></i></button>
+                                    <div draggable="true" 
+                                         ondragstart="handleDragStart(event, '${cat}', ${idx})"
+                                         ondragover="handleDragOver(event)"
+                                         ondragleave="handleDragLeave(event)"
+                                         ondrop="handleDrop(event, '${cat}', ${idx})"
+                                         class="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl cursor-move active:scale-95 transition-all">
+                                        <div class="p-3 text-gray-300"><i class="fas fa-grip-lines"></i></div>
+                                        <input type="text" value="${it.text}" onchange="window.masterChecklist['${cat}'][${idx}].text=this.value" class="flex-1 p-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
+                                        <button onclick="window.masterChecklist['${cat}'].splice(${idx}, 1); render()" class="text-red-200 p-2"><i class="fas fa-times-circle"></i></button>
                                     </div>
                                 `).join('')}
-                                <button onclick="addMasterCheckItem('${cat}')" class="text-xs font-bold text-gray-400 mt-2">+ 項目を追加</button>
+                                <button onclick="if(!window.masterChecklist['${cat}'])window.masterChecklist['${cat}']=[]; window.masterChecklist['${cat}'].push({id:'c'+Date.now(), text:''}); render()" class="text-xs font-bold text-blue-400 mt-4 px-2">+ 項目追加</button>
                             </div>
                         </div>`;
                 });
@@ -263,74 +268,160 @@
             }
 
             html += `
-                <div class="mt-8 p-4 bg-blue-50 rounded-2xl border border-blue-100">
-                    <button onclick="saveAllSettings()" class="w-full bg-blue-600 text-white font-black py-4 rounded-xl shadow-lg active:scale-95 transition-transform flex items-center justify-center">
-                        <i class="fas fa-cloud-upload-alt mr-2"></i> 設定をクラウドに保存
+                <div class="mt-12 p-6 bg-blue-600 rounded-3xl shadow-xl">
+                    <button onclick="saveAllSettings()" class="w-full bg-white text-blue-600 font-black py-5 rounded-2xl shadow-lg flex items-center justify-center">
+                        <i class="fas fa-cloud-upload-alt mr-3 text-xl"></i> マスター設定を本番適用
                     </button>
                 </div>
             </div>`;
             container.innerHTML = html;
         }
 
-        // --- Master Data Logic ---
-        function updateMasterRoom(i, f, v) { masterRooms[i][f] = v; }
-        function updateMasterStaff(i, f, v) { masterStaffs[i][f] = v; }
-        function updateMasterCheckItem(cat, i, v) { masterChecklist[cat][i].text = v; }
+        // --- Drag and Drop Handlers ---
+        let draggedIndex = null;
+        let draggedCategory = null;
 
-        function addMasterItem(type) {
-            if (type === 'rooms') masterRooms.push({ id: 'r'+Date.now(), number: '', type: '和室' });
-            if (type === 'staffs') masterStaffs.push({ id: 's'+Date.now(), name: '' });
-            render();
+        function handleDragStart(e, cat, idx) {
+            draggedIndex = idx;
+            draggedCategory = cat;
+            e.target.classList.add('dragging');
         }
 
-        function addMasterCheckItem(cat) {
-            if (!masterChecklist[cat]) masterChecklist[cat] = [];
-            masterChecklist[cat].push({ id: 'c'+Date.now(), text: '', category: '清掃' });
-            render();
+        function handleDragOver(e) {
+            e.preventDefault();
+            const target = e.currentTarget;
+            if (target && !target.classList.contains('dragging')) {
+                target.classList.add('drag-over');
+            }
         }
 
-        function removeMasterItem(type, i) {
-            if (type === 'rooms') masterRooms.splice(i, 1);
-            if (type === 'staffs') masterStaffs.splice(i, 1);
-            render();
+        function handleDragLeave(e) {
+            e.currentTarget.classList.remove('drag-over');
         }
 
-        function removeMasterCheckItem(cat, i) {
-            masterChecklist[cat].splice(i, 1);
+        function handleDrop(e, cat, idx) {
+            e.preventDefault();
+            e.currentTarget.classList.remove('drag-over');
+            if (draggedCategory !== cat || draggedIndex === null || draggedIndex === idx) return;
+
+            const list = window.masterChecklist[cat];
+            const [movedItem] = list.splice(draggedIndex, 1);
+            list.splice(idx, 0, movedItem);
+            
+            draggedIndex = null;
+            draggedCategory = null;
             render();
         }
 
         async function saveAllSettings() {
             const btn = event.currentTarget;
-            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> 保存中...';
+            btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> 同期中...';
             await window.saveSettingsToCloud({
-                rooms: masterRooms,
-                staffs: masterStaffs,
-                checklist: masterChecklist
+                rooms: window.masterRooms,
+                staffs: window.masterStaffs,
+                checklist: window.masterChecklist
             });
-            btn.innerHTML = '<i class="fas fa-check mr-2"></i> 保存完了';
-            setTimeout(() => render(), 1000);
+            btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i> 本番同期完了';
+            setTimeout(() => render(), 1500);
         }
 
-        // --- Daily Operation Logic ---
-        function deleteDailyRoom(id) {
-            if (!confirm('この部屋の予定を削除しますか？')) return;
-            const rooms = dailyData[currentDate].filter(r => r.id !== id);
-            window.saveDailyToCloud(currentDate, rooms);
+        function getStatusColor(s) {
+            switch(s) {
+                case '点検済': return 'bg-green-100 text-green-700 border-green-200';
+                case '清掃完了': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
+                case '清掃中': return 'bg-blue-100 text-blue-700 border-blue-200';
+                default: return 'bg-gray-100 text-gray-400 border-gray-200';
+            }
+        }
+
+        function closeModal() { document.getElementById('setup-modal').classList.add('hidden'); }
+
+        function openAddModal() {
+            if (window.masterRooms.length === 0) return alert('先に設定を行ってください');
+            const body = document.getElementById('modal-body');
+            body.innerHTML = `
+                <div>
+                    <label class="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-widest">稼働させる客室</label>
+                    <select id="f-room" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
+                        ${window.masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
+                    </select>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-widest">清掃担当</label>
+                        <select id="f-staff" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
+                            <option value="">未指定</option>
+                            ${window.masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-[10px] font-black text-gray-400 mb-2 block uppercase tracking-widest">点検担当</label>
+                        <select id="f-inspector" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
+                            <option value="">未指定</option>
+                            ${window.masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+                        </select>
+                    </div>
+                </div>`;
+            document.getElementById('setup-modal').classList.remove('hidden');
+            document.getElementById('modal-save-btn').onclick = async () => {
+                const rooms = dailyData[currentDate] || [];
+                rooms.push({
+                    id: 'd' + Date.now(),
+                    roomId: document.getElementById('f-room').value,
+                    staffId: document.getElementById('f-staff').value,
+                    inspectorId: document.getElementById('f-inspector').value,
+                    status: '未清掃', checks: {}, guestType: '通常'
+                });
+                await window.saveDailyToCloud(currentDate, rooms);
+                closeModal();
+            };
+        }
+
+        function renderDetail(container) {
+            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
+            if (!room) { selectedRoomId = null; return render(); }
+            const m = window.masterRooms.find(r => r.id === room.roomId) || {number:'?', type: '?'};
+            const checklist = window.masterChecklist[m.type] || [];
+
+            container.innerHTML = `
+                <div class="animate-in bg-white p-8 rounded-[2rem] shadow-xl border border-gray-100">
+                    <button onclick="selectedRoomId=null; render()" class="mb-8 text-gray-400 font-bold flex items-center">
+                        <i class="fas fa-chevron-left mr-2 text-xs"></i> 一覧に戻る
+                    </button>
+                    <div class="flex justify-between items-end mb-10 border-b pb-6">
+                        <div>
+                            <h2 class="text-5xl font-black text-gray-800 tracking-tighter">${m.number}</h2>
+                            <p class="text-sm font-bold text-blue-500 mt-1">${m.type}</p>
+                        </div>
+                        <div class="status-badge ${getStatusColor(room.status)} py-2 px-4 text-xs">${room.status}</div>
+                    </div>
+                    <div class="space-y-4 mb-12">
+                        ${checklist.map(item => `
+                            <div onclick="toggleCheck('${item.id}')" class="flex items-center p-5 bg-gray-50 rounded-2xl cursor-pointer active:scale-95 transition-all">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center border-2 ${room.checks[item.id] ? 'bg-green-500 border-green-500' : 'border-gray-200'} mr-4 transition-colors">
+                                    <i class="fas fa-check text-white ${room.checks[item.id] ? '' : 'hidden'}"></i>
+                                </div>
+                                <span class="font-bold ${room.checks[item.id] ? 'text-gray-400 line-through' : 'text-gray-700'}">${item.text}</span>
+                            </div>
+                        `).join('')}
+                    </div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <button onclick="updateStatus('清掃完了')" class="bg-blue-600 text-white py-5 rounded-2xl font-black shadow-lg">清掃完了</button>
+                        <button onclick="updateStatus('点検済')" class="bg-green-600 text-white py-5 rounded-2xl font-black shadow-lg">点検完了</button>
+                    </div>
+                    <button onclick="deleteDailyRoom('${room.id}')" class="w-full mt-6 text-gray-300 text-xs font-bold py-2"><i class="fas fa-trash-alt mr-1"></i>予定を削除</button>
+                </div>`;
         }
 
         function toggleCheck(cid) {
             const rooms = dailyData[currentDate];
             const room = rooms.find(r => r.id === selectedRoomId);
             room.checks[cid] = !room.checks[cid];
-            
-            const m = masterRooms.find(r => r.id === room.roomId);
-            const checklist = masterChecklist[m.type] || [];
+            const m = window.masterRooms.find(r => r.id === room.roomId);
+            const checklist = window.masterChecklist[m.type] || [];
             const doneCount = Object.values(room.checks).filter(v => v).length;
-            
             if (doneCount > 0 && room.status === '未清掃') room.status = '清掃中';
             if (doneCount === checklist.length && checklist.length > 0 && room.status === '清掃中') room.status = '清掃完了';
-
             window.saveDailyToCloud(currentDate, rooms);
         }
 
@@ -339,79 +430,15 @@
             rooms.find(r => r.id === selectedRoomId).status = s;
             window.saveDailyToCloud(currentDate, rooms);
             selectedRoomId = null;
+            render();
         }
 
-        function renderDetail(container) {
-            const room = dailyData[currentDate].find(r => r.id === selectedRoomId);
-            if (!room) { selectedRoomId = null; return render(); }
-            const m = masterRooms.find(r => r.id === room.roomId) || {number:'?', type: '?'};
-            const checklist = masterChecklist[m.type] || [];
-
-            container.innerHTML = `
-                <div class="animate-in bg-white p-6 rounded-3xl shadow-xl">
-                    <button onclick="selectedRoomId=null; render()" class="mb-6 text-gray-400 font-bold"><i class="fas fa-chevron-left mr-2"></i> 戻る</button>
-                    <div class="flex justify-between items-end mb-8">
-                        <div>
-                            <h2 class="text-4xl font-black text-gray-800">${m.number}</h2>
-                            <p class="text-sm font-bold text-blue-500 uppercase">${m.type}</p>
-                        </div>
-                        <div class="status-badge ${getStatusColor(room.status)} py-2 px-4">${room.status}</div>
-                    </div>
-                    <div class="space-y-3 mb-10">
-                        ${checklist.map(item => `
-                            <div onclick="toggleCheck('${item.id}')" class="flex items-center p-4 bg-gray-50 rounded-2xl cursor-pointer">
-                                <i class="${room.checks[item.id] ? 'fas fa-check-circle text-green-500' : 'far fa-circle text-gray-300'} text-2xl mr-4"></i>
-                                <span class="font-bold text-gray-700">${item.text}</span>
-                            </div>
-                        `).join('')}
-                    </div>
-                    <div class="flex gap-3">
-                        <button onclick="updateStatus('清掃完了')" class="flex-1 bg-blue-600 text-white py-4 rounded-2xl font-black">清掃完了</button>
-                        <button onclick="updateStatus('点検済')" class="flex-1 bg-green-600 text-white py-4 rounded-2xl font-black">点検完了</button>
-                    </div>
-                </div>`;
-        }
-
-        function openAddModal() {
-            if (masterRooms.length === 0) return alert('客室マスターを登録してください');
-            const body = document.getElementById('modal-body');
-            body.innerHTML = `
-                <select id="f-room" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
-                    ${masterRooms.map(r => `<option value="${r.id}">${r.number} (${r.type})</option>`).join('')}
-                </select>
-                <div class="grid grid-cols-2 gap-3">
-                    <select id="f-staff" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
-                        <option value="">清掃担当</option>
-                        ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
-                    </select>
-                    <select id="f-inspector" class="w-full p-4 border rounded-2xl font-black bg-gray-50">
-                        <option value="">点検担当</option>
-                        ${masterStaffs.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
-                    </select>
-                </div>`;
-            document.getElementById('setup-modal').classList.remove('hidden');
-            document.getElementById('modal-save-btn').onclick = () => {
-                const rooms = dailyData[currentDate] || [];
-                rooms.push({
-                    id: 'd' + Date.now(),
-                    roomId: document.getElementById('f-room').value,
-                    staffId: document.getElementById('f-staff').value,
-                    inspectorId: document.getElementById('f-inspector').value,
-                    guestType: '通常', status: '未清掃', checks: {}
-                });
-                window.saveDailyToCloud(currentDate, rooms);
-                closeModal();
-            };
-        }
-
-        function closeModal() { document.getElementById('setup-modal').classList.add('hidden'); }
-        function getStatusColor(s) {
-            switch(s) {
-                case '点検済': return 'bg-green-100 text-green-700';
-                case '清掃完了': return 'bg-yellow-100 text-yellow-700';
-                case '清掃中': return 'bg-blue-100 text-blue-700';
-                default: return 'bg-gray-100 text-gray-600';
-            }
+        function deleteDailyRoom(id) {
+            if (!confirm('この部屋の稼働を中止しますか？')) return;
+            const rooms = dailyData[currentDate].filter(r => r.id !== id);
+            window.saveDailyToCloud(currentDate, rooms);
+            selectedRoomId = null;
+            render();
         }
     </script>
 </body>
