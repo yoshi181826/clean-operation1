@@ -173,7 +173,6 @@
 
                 html += `
                 <div class="bg-white p-5 rounded-3xl shadow-sm border border-gray-100 animate-in relative overflow-hidden active:bg-gray-50 transition-colors" onclick="selectedRoomId='${room.id}'; render()">
-                    <!-- 進捗ゲージを表示 -->
                     <div class="absolute top-0 left-0 h-1.5 bg-blue-500 transition-all duration-500 z-10" style="width: ${progress}%"></div>
                     
                     <div class="flex justify-between items-start pt-2">
@@ -257,11 +256,11 @@
                                          ondrop="handleDrop(event, '${cat}', ${idx})"
                                          class="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl cursor-move active:scale-95 transition-all">
                                         <div class="p-3 text-gray-300"><i class="fas fa-grip-lines"></i></div>
-                                        <input type="text" value="${it.text}" onchange="window.masterChecklist['${cat}'][${idx}].text=this.value" class="flex-1 p-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
-                                        <button onclick="window.masterChecklist['${cat}'].splice(${idx}, 1); render()" class="text-red-200 p-2"><i class="fas fa-times-circle"></i></button>
+                                        <input type="text" value="${it.text}" onchange="updateChecklistItemText('${cat}', ${idx}, this.value)" class="flex-1 p-3 text-sm bg-transparent outline-none font-bold" placeholder="清掃項目">
+                                        <button onclick="deleteChecklistItem('${cat}', ${idx})" class="text-red-400 p-2 hover:bg-red-50 rounded-lg transition-colors"><i class="fas fa-times-circle"></i></button>
                                     </div>
                                 `).join('')}
-                                <button onclick="if(!window.masterChecklist['${cat}'])window.masterChecklist['${cat}']=[]; window.masterChecklist['${cat}'].push({id:'c'+Date.now(), text:''}); render()" class="text-xs font-bold text-blue-400 mt-4 px-2">+ 項目追加</button>
+                                <button onclick="addChecklistItem('${cat}')" class="text-xs font-bold text-blue-400 mt-4 px-2 hover:text-blue-600">+ 項目追加</button>
                             </div>
                         </div>`;
                 });
@@ -278,6 +277,26 @@
             container.innerHTML = html;
         }
 
+        // --- Checklist Helpers ---
+        function updateChecklistItemText(cat, idx, text) {
+            if (window.masterChecklist[cat] && window.masterChecklist[cat][idx]) {
+                window.masterChecklist[cat][idx].text = text;
+            }
+        }
+
+        function deleteChecklistItem(cat, idx) {
+            if (window.masterChecklist[cat]) {
+                window.masterChecklist[cat].splice(idx, 1);
+                render();
+            }
+        }
+
+        function addChecklistItem(cat) {
+            if (!window.masterChecklist[cat]) window.masterChecklist[cat] = [];
+            window.masterChecklist[cat].push({id: 'c' + Date.now(), text: ''});
+            render();
+        }
+
         // --- Drag and Drop Handlers (PC & Tablet) ---
         let draggedIndex = null;
         let draggedCategory = null;
@@ -285,12 +304,11 @@
         function handleDragStart(e, cat, idx) {
             draggedIndex = idx;
             draggedCategory = cat;
-            // e.dataTransfer.effectAllowed = 'move'; // PCブラウザ向けの明示的な指定
             e.target.classList.add('dragging');
         }
 
         function handleDragOver(e) {
-            e.preventDefault(); // ドロップを許可するために必須
+            e.preventDefault(); 
             e.dataTransfer.dropEffect = 'move';
             const target = e.currentTarget;
             if (target && !target.classList.contains('dragging')) {
@@ -304,7 +322,6 @@
 
         function handleDragEnd(e) {
             e.target.classList.remove('dragging');
-            // 全ての要素からdrag-overを消す
             document.querySelectorAll('.drag-over').forEach(el => el.classList.remove('drag-over'));
         }
 
@@ -312,7 +329,6 @@
             e.preventDefault();
             e.currentTarget.classList.remove('drag-over');
             
-            // カテゴリが違う場合や、同じ位置の場合は何もしない
             if (draggedCategory !== cat || draggedIndex === null || draggedIndex === idx) return;
 
             const list = window.masterChecklist[cat];
@@ -326,6 +342,7 @@
 
         async function saveAllSettings() {
             const btn = event.currentTarget;
+            const originalHtml = btn.innerHTML;
             btn.innerHTML = '<i class="fas fa-spinner fa-spin mr-2"></i> 同期中...';
             await window.saveSettingsToCloud({
                 rooms: window.masterRooms,
@@ -333,7 +350,10 @@
                 checklist: window.masterChecklist
             });
             btn.innerHTML = '<i class="fas fa-check-circle mr-2"></i> 本番同期完了';
-            setTimeout(() => render(), 1500);
+            setTimeout(() => {
+                btn.innerHTML = originalHtml;
+                render();
+            }, 1500);
         }
 
         function getStatusColor(s) {
